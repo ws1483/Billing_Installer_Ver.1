@@ -1,17 +1,17 @@
 # Billing System — Modernization Plan
 
 > Working document. Derived from a full scan of the existing Excel/VBA application.
-> Everything here is a proposal to be fleshed out and confirmed. Nothing is final.
+> **§7 decisions are now CONFIRMED.** Building against these.
 
 ---
 
 ## 1. What the current program is (from the code scan)
 
 The existing app is an **Excel `.xlsm` VBA application** for a dental / medical-aid
-billing practice (appears to be **South African** — WA/WD departments, medical-aid
-claims, BHF numbers, Rand formatting). It is genuinely well-built for VBA:
-clean module separation, a single central column-map, normalized ID matching,
-overwrite guards, and an audit log.
+billing practice (South African — WA/WD departments, medical-aid claims, BHF
+numbers, Rand formatting). It is genuinely well-built for VBA: clean module
+separation, a single central column-map, normalized ID matching, overwrite
+guards, and an audit log.
 
 ### 1.1 Document types (all implemented today)
 | Kind | Sheet | Log sheet | Lines sheet | Number format | Counter cell |
@@ -27,37 +27,31 @@ Supporting sheets: `Settings`, `Customers` (doctors), `Med Customers` (patients)
 
 ### 1.2 Module map (what each `.bas`/form does)
 - **modConfig** — the backbone. Column constants for every sheet + a `DocConfig`
-  type + `GetDocConfig()` that unifies the 4 doc kinds. **This is the single best
-  asset for the rewrite — it is effectively the data schema.**
-- **modHelpers** — shared helpers: `NrmID` (normalize id), `NextDocNumber` /
-  `NextUniqueDocNumber` (counter-based numbering with uniqueness loop),
-  `FindLogRow`, `SafeToWriteNumber` (overwrite guard), `LogAudit`,
-  customer/doctor lookups, doctor & patient credit stores.
+  type + `GetDocConfig()` that unifies the 4 doc kinds. **The single best asset
+  for the rewrite — effectively the data schema.**
+- **modHelpers** — shared helpers: `NrmID`, `NextDocNumber` /
+  `NextUniqueDocNumber` (counter numbering + uniqueness loop), `FindLogRow`,
+  `SafeToWriteNumber` (overwrite guard), `LogAudit`, customer/doctor lookups,
+  doctor & patient credit stores.
 - **modMenu** — builds the dashboard by writing summaries *into Menu cells*
-  (B19:H68). Filters read from cells: dept `C5`, date-from `B17`, date-to `C17`,
-  doctor `E17`, recipient `I17`, type `G17`. **This is the "menu = summary"
-  coupling you want to break.**
-- **modMenuNew / ModMenuButtons / modMenuSave** — button wrappers for New/Save.
+  (B19:H68); filters read from cells (dept C5, dates B17/C17, doctor E17,
+  recipient I17, type G17). **The "menu = summary" coupling to break.**
+- **modMenuNew / ModMenuButtons / modMenuSave** — New/Save button wrappers.
 - **modMedClaim** — Save/Recall med claims + autofill from `Med Customers`.
-- **modRecall** — Recall invoice/quote/credit-note (resets sheet, applies
-  recipient layout, loads lines).
-- **modRecipient** — dynamic Doctor vs Private layout switching (rewrites labels
-  + INDEX/MATCH formulas per recipient type).
+- **modRecall** — Recall invoice/quote/credit-note.
+- **modRecipient** — dynamic Doctor vs Private layout switching.
 - **modConvert** — Quote → Invoice conversion, links both logs, exports PDF.
-- **modRenumber** — dept-change renumber, manual rename, revert-converted-quote.
-  Cascades number changes across Payments + CreditNotes. Unpaid-only guards.
-- **modCreditLink** — Credit Note ↔ Invoice linking; applies credit against
-  invoice, routes **excess** into doctor/patient credit store; full void/reverse.
-  (Most financially sensitive logic in the app.)
+- **modRenumber** — dept-change renumber, manual rename, revert-converted-quote;
+  cascades number changes across Payments + CreditNotes; unpaid-only guards.
+- **modCreditLink** — Credit Note ↔ Invoice linking; applies credit, routes
+  **excess** into doctor/patient credit store; full void/reverse. (Most
+  financially sensitive logic.)
 - **modPayment** — record/manage payments; `ReconcileDoc` recomputes
   Paid/Balance/Status from Payments rows.
-- **modFormulas** — line price auto-fill from `Pricelist` (G = price incl,
-  authoritative; E/F/H derive).
-- **modExportPDF** — export/print active doc; forces one-page fit
-  (`$A$1:$H$48`, FitToPagesTall=1).
+- **modFormulas** — line price auto-fill from `Pricelist` (G incl authoritative).
+- **modExportPDF** — export/print active doc; one-page fit (`$A$1:$H$48`).
 - **modBackup** — timestamped `SaveCopyAs`, keeps newest 3; navigation helpers.
-- **modCleanup / modNameAudit / modNameRepair** — integrity sweeps for orphan
-  line rows and number consistency.
+- **modCleanup / modNameAudit / modNameRepair** — integrity sweeps.
 - **modCalendar / frmCalendar** — date picker.
 - **Forms**: `frmPayment`, `frmPaymentManage`, `frmReport`, `frmSearch`,
   `frmStatement`, `frmCalendar`.
@@ -69,108 +63,136 @@ date range + department (All/WA/WD/MC), Summary or Full mode.
 
 ---
 
-## 2. Why the requested features need a rewrite (honest assessment)
+## 2. Why the requested features need a rewrite
 
-Every feature you asked for is blocked by the **Excel-as-database, single-file,
+Every requested feature is blocked by the **Excel-as-database, single-file,
 single-user** architecture:
 
 | Requested feature | Blocker in current design |
 |---|---|
-| Licensing / standalone program | It's an `.xlsm` needing Excel; no licensing possible |
-| Multi-PC, central DB, "work from anywhere" | The workbook *is* the database; one file = one user at a time |
-| Login with different users | Only `Environ$("USERNAME")` is captured, no auth |
-| Menu shows options only; summaries in separate windows | Menu sheet **is** the summary (cells B19:H68) |
-| VAT on/off, currency settings | VAT is baked into sheet formulas + fixed columns |
-| Fully customizable page setups + headings/footers | Layout is hardcoded cell ranges (`$A$1:$H$48`) |
-| CRM + Dental Lab modules | No module framework; data model is fixed sheets |
+| Licensing / standalone program | It's an `.xlsm` needing Excel |
+| Multi-PC, central DB, "work from anywhere" | Workbook *is* the DB; one file = one user |
+| Login with different users | Only `Environ$("USERNAME")` captured, no auth |
+| Menu shows options only; summaries in separate windows | Menu sheet **is** the summary |
+| VAT on/off, currency settings | VAT baked into sheet formulas + fixed columns |
+| Fully customizable page setups + headings/footers | Layout is hardcoded cell ranges |
+| CRM + Dental Lab modules | No module framework; fixed data model |
 | Export to accountant (CSV/others) | No export layer today |
 
-**Recommendation: rebuild as a C#/.NET desktop app on a real database**, reusing
-the existing VBA as the *authoritative behavior spec*. The `modConfig` schema,
-numbering rules, credit-note excess handling, and reconciliation logic all
-transfer directly.
+**Decision: rebuild as a C#/.NET desktop app on PostgreSQL**, reusing the VBA as
+the *authoritative behavior spec*.
 
 ---
 
-## 3. Recommended technology stack (for confirmation)
+## 3. Confirmed technology stack
 
-| Concern | Recommendation | Rationale |
+| Concern | Decision | Rationale |
 |---|---|---|
-| Language / UI | **C# + .NET 8, WPF** (WinForms acceptable) | Native Windows, mature, closest to VBA logic |
-| ORM / data | **Entity Framework Core** | Maps `*Log`/`*Lines` sheets to tables cleanly |
-| Database | **PostgreSQL** (central), **SQLite** local/offline option | True multi-user client/server |
-| "From anywhere" | Cloud-hosted DB or on-prem server + VPN | Real remote access |
-| PDF / documents | **QuestPDF** with user-editable templates | Customizable page setup + headings/footers |
+| Language / UI | **C# + .NET 8, WPF** | Native Windows, closest to VBA logic |
+| ORM / data | **Entity Framework Core** (Npgsql) | Clean table mapping + migrations |
+| Database | **PostgreSQL** | True multi-user, ~10 concurrent users |
+| Deployment | **BOTH** local-server+VPN **and** cloud-hosted (see §3.1) | User picks at install time |
+| PDF / documents | **QuestPDF** with editable templates | Customizable page setup + headings/footers |
 | Reporting | LINQ queries + grid/export | Replaces cell-driven filters |
-| Auth | Users + roles table, hashed passwords (BCrypt) | Multi-user login + per-user audit |
-| Licensing | Signed license key + machine activation, offline grace | Your "standalone with licensing" need |
-| Installer | MSI (WiX) or Inno Setup | Distribution |
+| Auth | Users + roles, hashed passwords (BCrypt) | Multi-user login + per-user audit |
+| Licensing | Signed license key + machine activation, offline grace | Standalone with licensing |
+| Installer | Inno Setup (or WiX MSI) | Distribution + DB-mode selection |
+| Config | i18n / multi-country settings (see §3.2) | Works outside South Africa |
 
-> If staying in Excel/VBA is a hard requirement, licensing + central multi-user DB
-> + separate summary windows are all severely limited. Please confirm the stack —
-> this is the single biggest decision.
+### 3.1 Deployment — BOTH modes supported (confirmed)
+The installer will let the customer choose one of:
+1. **Local server + VPN** — PostgreSQL installed on an office server/PC;
+   remote PCs connect over VPN. Fully on-prem, no cloud dependency.
+2. **Cloud-hosted** — PostgreSQL on a managed cloud provider; any PC connects
+   over TLS from anywhere.
+
+Same application binary for both — only the **connection string** differs.
+- Connection settings screen (host, port, db, user, password, SSL mode).
+- Encrypted, per-machine stored connection profile.
+- ~10 concurrent users target; connection pooling tuned accordingly.
+- First-run wizard: "Local/VPN server" vs "Cloud server" → enter connection →
+  test → run migrations if empty.
+
+### 3.2 Multi-country support (confirmed)
+Default profile = **South Africa (ZAR, 15% VAT, medical-aid claim fields)**, but
+**users can manually configure for any country**:
+- **Country profile** setting: country name, currency code + symbol, tax label
+  (VAT/GST/Sales Tax), tax rate(s), tax-registration label (VAT No / GST No…).
+- **VAT/tax on-off toggle** + editable rate.
+- Currency symbol, decimal separator, thousands separator, date format.
+- Medical-aid / claim fields become **optional** (toggle) for non-SA users.
+- Number-format prefixes (INV/Q/MC/CN, dept segments) editable per install.
+- All tax math done in code from the active country profile — never hardcoded.
 
 ---
 
-## 4. Proposed database schema (derived from `modConfig`)
-
-Direct translation of the sheet column maps:
+## 4. Database schema (derived from `modConfig`)
 
 - **users** (id, username, password_hash, role, is_active, created_at)
-- **settings** (key, value) — VAT enabled, VAT %, currency, counters, backup dir,
-  bank details, headings/footers text
+- **settings** (key, value) — includes **country_profile** (json: currency, tax
+  label, tax rate, med-aid enabled, formats), VAT enabled, counters, bank
+  details, headings/footers, deployment_mode
+- **countries / tax_profiles** (id, country, currency_code, currency_symbol,
+  tax_label, tax_rate, tax_reg_label, med_aid_enabled, date_format) — seed row
+  for South Africa; users add/edit others
 - **doctors** (was `Customers`: cust_id, name, street, suburb, city, postcode,
-  id_no, tel, bhf_no, med_aid, vat_no, credit_balance)
+  id_no, tel, tax_reg_no, bhf_no, med_aid, credit_balance)
 - **patients** (was `Med Customers`: bill_to_key, name, address…, id_no, tel,
-  email, med_aid_name, med_aid_number, dependant_code, main_member, credit_balance,
-  **folder_path** ← for the "open folder" feature)
-- **documents** (unified header for INV/QTE/MC/CN: id, doc_kind, doc_no, dept,
-  recipient_type, doc_date, due_date, patient_id, doctor_id, appliance_type,
-  subtotal, discount, vat, total, paid, balance, status, source_quote_no,
-  converted_inv_no, source_inv_no, med_aid fields, notes, created_at, modified_at,
-  created_by)
-- **document_lines** (doc_id, line_no, code, zcode, description, qty, excl, vat,
-  incl, total)
-- **payments** (id, doc_id, date, amount, method, reference, notes, created_by)
-- **audit_log** (timestamp, user, action, doc_no, old_val, new_val, comment)
-- **pricelist** (code, description, zcode, price_incl, vatable)
+  email, med_aid_name, med_aid_number, dependant_code, main_member,
+  credit_balance, **folder_path** ← "open folder" feature)
+- **documents** (unified INV/QTE/MC/CN header: id, doc_kind, doc_no, dept,
+  recipient_type, doc_date, due_date, patient_id **(FK)**, doctor_id **(FK)**,
+  appliance_type, subtotal, discount, tax_amount, total, paid, balance, status,
+  source_quote_no, converted_inv_no, source_inv_no, med-aid fields, notes,
+  is_voided **(soft-delete)**, created_at, modified_at, created_by **(FK users)**)
+- **document_lines** (doc_id **(FK)**, line_no, code, zcode, description, qty,
+  excl, tax, incl, total) — **no 15-line cap**
+- **payments** (id, doc_id **(FK)**, date, amount, method, reference, notes,
+  created_by, is_voided)
+- **audit_log** (timestamp, user_id **(FK)**, action, doc_no, old_val, new_val,
+  comment)
+- **pricelist** (code, description, zcode, price_incl, taxable)
 - **document_templates** (doc_kind, page_setup json, header, footer, logo)
-- **crm_*** and **lab_*** tables (see §6)
+- **doc_number_sequences** (doc_kind, dept, next_value) — **atomic** counters
+- **crm_*** and **lab_*** tables (see §5.7 / §5.8)
 
 ---
 
 ## 5. Feature-by-feature delivery plan
 
 ### 5.1 Core (Phase 1)
-- PostgreSQL + EF Core schema above
-- Users, login, roles, per-user audit (extends `LogAudit`)
-- Settings screen: **VAT on/off + VAT %**, **currency**, bank details, counters
+- PostgreSQL + EF Core schema + migrations
+- **First-run wizard: Local/VPN vs Cloud** connection setup + test
+- Users, login, roles, per-user audit (real user, before/after values)
+- Settings screen: **country profile**, **tax on/off + rate**, **currency**,
+  formats, bank details, counters
+- **Atomic doc-number sequences** (DB-side; safe for 10 concurrent users)
 
 ### 5.2 Documents (Phase 2)
 - Port Invoice/Quote/Med Claim/Credit Note using existing rules:
-  - Numbering + uniqueness loop (`NextUniqueDocNumber`)
-  - Overwrite guard (`SafeToWriteNumber`)
+  - Numbering (atomic) + overwrite guard equivalent
   - Recipient (Doctor/Private) dynamic fields
   - Quote→Invoice conversion
-  - Dept-change renumber + manual rename + revert
+  - Dept-change renumber + manual rename + revert (**soft-delete/void trail**)
   - **Credit-note excess → credit store** (preserve exactly)
   - Payment reconciliation (`ReconcileDoc`)
+  - Tax computed from **active country profile**
 
 ### 5.3 Customizable templates (Phase 3)
 - Per-doc-kind page setup, margins, orientation
 - Editable **headings & footers**, logo, banking block
-- Replaces the hardcoded `$A$1:$H$48` one-page fit
+- Replaces hardcoded `$A$1:$H$48` one-page fit
 
 ### 5.4 New Menu + summaries (Phase 4)
 - **Menu = options only** (no data)
 - Summaries open in **separate windows**
-- **Open patient folder** button (opens the OS folder from `patients.folder_path`)
+- **Open patient folder** button (from `patients.folder_path`)
 
 ### 5.5 Reports + filters (Phase 5)
-Existing filters: date range, department, doc type.
-**Suggested additions:** status (Unpaid/Part-Paid/Paid), amount range,
-**aging buckets 30/60/90**, medical-aid name, patient, doctor, balance>0 only,
-created-by user, recipient type. Results in a sortable grid, exportable.
+Existing: date range, department, doc type. **Additions:** status
+(Unpaid/Part-Paid/Paid), amount range, **aging buckets 30/60/90**, medical-aid
+name, patient, doctor, balance>0 only, created-by user, recipient type. Sortable
+grid, exportable.
 
 ### 5.6 Accountant export (Phase 6)
 - Universal **CSV** with column mapping
@@ -180,58 +202,46 @@ created-by user, recipient type. Results in a sortable grid, exportable.
 ### 5.7 CRM module (Phase 7)
 - Unified contacts (patients + doctors as parties)
 - Leads, follow-ups, reminders, communication log
-- **Sees invoices/quotes** for a contact (read from `documents`)
+- **Sees invoices/quotes** for a contact (reads `documents`)
 
 ### 5.8 Dental Lab module (Phase 8)
-- Lab jobs/orders with status workflow: received → in-progress → ready → delivered
+- Lab jobs/orders workflow: received → in-progress → ready → delivered
 - Linked to patient + doctor
-- Can auto-generate a Quote or Invoice via the existing document engine
+- Can auto-generate a Quote or Invoice via the document engine
 
 ### 5.9 Licensing, installer, remote hardening (Phase 9)
 - Signed license keys, machine activation, offline grace period
-- MSI/Inno installer
-- Connection pooling, migrations, backup/restore for the central DB
+- Installer with **Local/VPN vs Cloud** DB-mode selection
+- Connection pooling, migrations, backup/restore, TLS enforcement
 
 ---
 
-## 6. Recommended improvements (found during the scan)
+## 6. Improvements — ALL adopted (confirmed)
 
-1. **Replace bubble sorts** (`modMenu`, `modBackup`) — fine in VBA, but in the
-   rewrite use DB `ORDER BY` (menu summaries currently bubble-sort in memory).
-2. **Kill duplicated helpers** — `Num`/`NrmID` are redefined in `modCreditLink`
-   though they exist in `modHelpers`. Consolidate in the new codebase.
-3. **Concurrency safety on counters** — counter-cell increment is not safe for
-   multi-user. Use a DB sequence / transaction so two PCs can't grab the same
-   number. (Your `NextUniqueDocNumber` loop is a good fallback but not atomic.)
-4. **Move VAT out of formulas** — make it a setting so VAT/no-VAT and rate are
-   configurable; recompute line excl/vat/incl in code.
-5. **Foreign keys instead of string matching** — today docs match doctors/patients
-   by normalized name/id strings; use real FK ids to avoid rename drift (already
-   partly mitigated by the cascade repointing in `modRenumber`).
-6. **Full audit** — capture real logged-in user (not just Windows username),
-   before/after values on every write.
-7. **Soft-delete / void trail** — the hard deletes in `RevertQuoteToSaved` and
-   `VoidCreditNote` are well-guarded, but a soft-delete + audit trail is safer
-   for financial records.
-8. **Line-item cap** — current sheets cap at 15 lines (rows 16–30). The DB model
-   removes that limit.
-9. **Centralized error handling + logging** to a file/table instead of `MsgBox`.
-10. **Automated tests** around numbering, credit-note excess, and reconciliation —
-    the highest-risk money paths.
+1. **DB `ORDER BY`** replaces in-memory bubble sorts.
+2. **Consolidated helpers** — one `Num`/`NrmID` equivalent, no duplicates.
+3. **Atomic DB sequences** for document numbers (safe for 10 concurrent users).
+4. **Tax out of formulas** — computed in code from the country profile.
+5. **Foreign keys** for doctors/patients instead of string matching.
+6. **Full audit** — real logged-in user + before/after values on every write.
+7. **Soft-delete / void trail** for all financial records.
+8. **No line-item cap** (DB model removes the 15-line limit).
+9. **Centralized error handling + logging** to file/table (no `MsgBox`).
+10. **Automated tests** around numbering, credit-note excess, reconciliation.
 
 ---
 
-## 7. Open questions to confirm before building
+## 7. Confirmed decisions
 
-1. **Stack:** OK with **C#/.NET + PostgreSQL**, or must it stay Excel/VBA?
-2. **Users / PCs:** how many concurrent users and PCs?
-3. **Hosting:** cloud-hosted DB, or office server + VPN?
-4. **Country/VAT/currency:** confirm South Africa / ZAR / 15% VAT and med-aid
-   claim format?
-5. **Priority order:** is the phase order above right, or should CRM / Lab come
-   earlier?
-6. **Data migration:** do we need to import existing invoices/quotes/patients from
-   the current workbook into the new DB?
+| # | Question | Decision |
+|---|---|---|
+| 1 | Stack | ✅ **C#/.NET + PostgreSQL** |
+| 2 | Concurrent users / PCs | ✅ **10** |
+| 3 | Hosting | ✅ **BOTH** — local server+VPN **and** cloud, chosen at install |
+| 4 | Country / tax / currency | ✅ Default **South Africa (ZAR, 15% VAT)**; **users can manually set any country** |
+| 5 | Improvements | ✅ **Use all 10** |
+| 6 | Priority order | Phase order per §5 (confirm or adjust) |
+| 7 | Data migration | **Open** — import existing workbook data into the new DB? (please confirm) |
 
 ---
 
@@ -240,5 +250,6 @@ created-by user, recipient type. Results in a sortable grid, exportable.
 - [x] Scanned all existing VBA modules and forms
 - [x] Documented current architecture + data model
 - [x] Proposed stack, schema, phased plan, improvements
-- [ ] Confirm open questions (§7)
-- [ ] Lock scope for Phase 1
+- [x] Confirmed stack, concurrency, hosting (both), multi-country, improvements
+- [ ] Confirm data migration (§7.7) + phase priority (§7.6)
+- [ ] Lock scope for Phase 1 and begin scaffolding
