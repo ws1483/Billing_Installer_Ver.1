@@ -103,7 +103,9 @@ assertions and the following integration checks must be run on a workbook copy:
 - Backdate several installments; reopen and verify catch-up, failed-mail retry,
   successful-mail removal and the Menu count.
 - Generate each statement, inspect PDF totals/aging and its `StatementLog` row;
-  ensure unrelated account invoices are excluded.
+  ensure unrelated account invoices are excluded. Check zero-rated/mixed-tax
+  sources and partial payments: statement VAT uses each invoice's saved tax
+  allocation in proportion to its outstanding balance, not an assumed rate.
 - Cancel/amend an unpaid unsent plan, verify the retained audit/void trail,
   and verify paid/sent invoices block changes.
 - Test duplicate source, converted quote, numbering collision, missing Outlook,

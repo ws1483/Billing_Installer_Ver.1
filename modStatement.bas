@@ -28,6 +28,7 @@ Public Sub RunPaymentPlanStatement(planRows As Collection, title As String)
     Dim idx As Object, pr As Variant, lr As Long, r As Long, off As Long, needRows As Long
     Dim docNo As String, paid As Double, amount As Double, balance As Double, running As Double
     Dim tInv As Double, tPaid As Double, ageCur As Double, age30 As Double
+    Dim vatDue As Double, lineVat As Double
     Dim age60 As Double, age90 As Double, days As Long, dueD As Date
     Dim folder As String, fpath As String, dFrom As Date, dTo As Date, fileTitle As String, ch As Variant
     On Error GoTo Fail
@@ -66,6 +67,14 @@ Public Sub RunPaymentPlanStatement(planRows As Collection, title As String)
         amount = Num(wsLog.Cells(lr, IL_TOTAL).value)
         paid = PaymentsAsOfIdx(idx, docNo, Date)
         balance = LiveOutstanding(amount, idx, docNo, Date)
+        lineVat = 0
+        If amount > 0 Then
+            ' Allocate the saved tax proportionally after payments, including zero-rated sources.
+            lineVat = Round(balance * Num(wsLog.Cells(lr, IL_VAT).value) / amount, 2)
+            If lineVat < 0 Then lineVat = 0
+            If lineVat > balance Then lineVat = balance
+        End If
+        vatDue = vatDue + lineVat
         dueD = CDate(wsPlans.Cells(CLng(pr), PP_DUE).value)
         If dueD < dFrom Then dFrom = dueD
         If dueD > dTo Then dTo = dueD
@@ -99,8 +108,8 @@ Public Sub RunPaymentPlanStatement(planRows As Collection, title As String)
     ws.Range("H" & (19 + off)).value = tInv
     ws.Range("H" & (20 + off)).value = tPaid
     ws.Range("H" & (21 + off)).value = 0
-    ws.Range("H" & (22 + off)).value = Round(running / (1 + VAT_RATE), 2)
-    ws.Range("H" & (23 + off)).value = running - Round(running / (1 + VAT_RATE), 2)
+    ws.Range("H" & (22 + off)).value = Round(running - vatDue, 2)
+    ws.Range("H" & (23 + off)).value = vatDue
     ws.Range("H" & (24 + off)).value = running
     ws.Range("E" & (27 + off)).value = ageCur
     ws.Range("F" & (27 + off)).value = age30
@@ -1491,4 +1500,3 @@ Private Function DeptStmtTitle(dept As String) As String
         Case Else: DeptStmtTitle = tWA & " / " & tWD & " Statement"
     End Select
 End Function
-
