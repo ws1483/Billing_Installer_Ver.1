@@ -1,8 +1,8 @@
 Attribute VB_Name = "modConvert"
 Option Explicit
 ' ============================================================================
-' ConvertQuoteToInvoice ï¿½ button on the QUOTE sheet.
-'   1B FIX: copy line Price INCL (G), not Excl (E) ï¿½ E/F/H derive.
+' ConvertQuoteToInvoice — button on the QUOTE sheet.
+'   1B FIX: copy line Price INCL (G), not Excl (E) — E/F/H derive.
 '   PHASE 3 FIX: copy discounts from C32/C33 (not K5/K6).
 '   Copies C14/D14 ApplianceType header across.
 ' ============================================================================
@@ -58,7 +58,7 @@ Public Sub ConvertQuoteToInvoice()
     wsI.Range("D14").value = wsQ.Range("D14").value    ' Appliance Type (2nd cell / merged partner)
     wsI.Range("F14").value = wsQ.Range("F14").value    ' Patient Name
 
-    ' line items ï¿½ A=Qty, D=Description, G=Price Incl (authoritative; E/F/H derive)
+    ' line items — A=Qty, D=Description, G=Price Incl (authoritative; E/F/H derive)
     wsI.Range("A16:A30").value = wsQ.Range("A16:A30").value   ' Qty
     wsI.Range("D16:D30").value = wsQ.Range("D16:D30").value   ' Description
     wsI.Range("G16:G30").value = wsQ.Range("G16:G30").value   ' Price Incl (1B authoritative)
@@ -265,3 +265,6 @@ Private Sub CopyIfExists(src As Worksheet, dst As Worksheet, addr As String)
     dst.Range(addr).value = src.Range(addr).value
     On Error GoTo 0
 End Sub
+
+
+

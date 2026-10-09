@@ -388,24 +388,24 @@ Private Function BuildPlan(ByVal sourceDocNo As String, ByVal aligners As Double
             If NrmID(CStr(src.Cells(sourceRow, QL_STATUS).Value)) = "CANCELLED" Or _
                 NrmID(CStr(src.Cells(sourceRow, QL_STATUS).Value)) = "VOIDED" Then _
                 Err.Raise vbObjectError + 722, , "Source quote is cancelled."
-            If recipient = "" Then recipient = CStr(src.Cells(sourceRow, QL_RECIP).Value)
-            If custID = "" Then custID = CStr(src.Cells(sourceRow, QL_CUST).Value)
-            If patientName = "" Then patientName = CStr(src.Cells(sourceRow, QL_PATIENT).Value)
+            recipient = CStr(src.Cells(sourceRow, QL_RECIP).Value)
+            custID = CStr(src.Cells(sourceRow, QL_CUST).Value)
+            patientName = CStr(src.Cells(sourceRow, QL_PATIENT).Value)
         Else
-            If retiringPlan = "" Then AssertUnpaid src, sourceRow, cfg
+            If retiringPlan = "" Then AssertUnpaid src, sourceRow, cfg, (kind = "INV")
             If retiringPlan <> "" And NrmID(CStr(src.Cells(sourceRow, cfg.colStatus).Value)) <> "VOIDED" Then _
                 Err.Raise vbObjectError + 722, , "Amendment source is no longer voided."
             If kind = "MC" Then
                 recipient = "medclaim"
-                If custID = "" Then custID = CStr(src.Cells(sourceRow, ML_CUST).Value)
-                If patientName = "" Then patientName = CStr(src.Cells(sourceRow, ML_PATIENT).Value)
+                custID = CStr(src.Cells(sourceRow, ML_CUST).Value)
+                patientName = CStr(src.Cells(sourceRow, ML_PATIENT).Value)
             Else
-                If recipient = "" Then recipient = CStr(src.Cells(sourceRow, IL_RECIP).Value)
-                If custID = "" Then custID = CStr(src.Cells(sourceRow, IL_CUST).Value)
-                If patientName = "" Then patientName = CStr(src.Cells(sourceRow, IL_PATIENT).Value)
+                recipient = CStr(src.Cells(sourceRow, IL_RECIP).Value)
+                custID = CStr(src.Cells(sourceRow, IL_CUST).Value)
+                patientName = CStr(src.Cells(sourceRow, IL_PATIENT).Value)
             End If
         End If
-        If dept = "" Then dept = CStr(src.Cells(sourceRow, cfg.colDept).Value)
+        dept = CStr(src.Cells(sourceRow, cfg.colDept).Value)
         sourceTotal = CCur(Num(src.Cells(sourceRow, cfg.colTotal).Value))
         If retiringPlan = "" Or kind = "QTE" Then
             total = sourceTotal
@@ -511,7 +511,7 @@ Private Function BuildPlan(ByVal sourceDocNo As String, ByVal aligners As Double
                 src.Cells(sourceRow, QL_STATUS).Value = "Converted"
                 src.Cells(sourceRow, QL_MODIFIED).Value = Now
             Else
-                AssertUnpaid src, sourceRow, cfg
+                AssertUnpaid src, sourceRow, cfg, (kind = "INV")
                 SoftVoid src, sourceRow, cfg, "Replaced by payment plan " & id
             End If
         End If
