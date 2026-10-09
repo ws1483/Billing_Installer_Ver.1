@@ -102,6 +102,27 @@ End Function
 ' Applies the same one-page fit as ExportPDF so long descriptions never push
 ' the footer/banking block onto a second page. Uses the default printer.
 ' ============================================================================
+Public Function ExportInvoiceForMail(ws As Worksheet, pdfPath As String) As String
+    If ws.Name <> "Invoice" Or Trim(CStr(ws.Range("G7").value)) = "" Then
+        Err.Raise vbObjectError + 601, , "Recall the saved installment invoice before exporting."
+    End If
+    If dir(pdfPath) <> "" Then
+        Err.Raise vbObjectError + 602, , "PDF already exists. Choose a new filename."
+    End If
+    On Error GoTo Fail
+    FitDocToOnePage ws, "$A$1:$H$48"
+    ws.Calculate
+    ws.ExportAsFixedFormat Type:=xlTypePDF, Filename:=pdfPath, _
+        Quality:=xlQualityStandard, IncludeDocProperties:=True, _
+        IgnorePrintAreas:=False, OpenAfterPublish:=False
+    LogAudit "ExportPDF", CStr(ws.Range("G7").value), "", pdfPath, "Payment Options mail attachment"
+    ExportInvoiceForMail = pdfPath
+    Exit Function
+Fail:
+    Application.PrintCommunication = True
+    Err.Raise Err.Number, "ExportInvoiceForMail", Err.Description
+End Function
+
 Public Sub PrintDoc()
     Dim ws As Worksheet, docNo As String
 

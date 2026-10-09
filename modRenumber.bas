@@ -9,6 +9,23 @@ Attribute VB_Name = "modRenumber"
 ' ============================================================================
 Option Explicit
 
+' Plan invoice/source identifiers are immutable; changes go through Amend Plan.
+Private Function PaymentPlanLinked(ByVal docNo As String) As Boolean
+    Dim ws As Worksheet, i As Long
+    If NrmID(docNo) = "" Then Exit Function
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("PaymentPlans")
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Function
+    For i = 2 To ws.Cells(ws.Rows.Count, PP_PLANID).End(xlUp).row
+        If NrmID(CStr(ws.Cells(i, PP_SOURCE).value)) = NrmID(docNo) Or _
+           NrmID(CStr(ws.Cells(i, PP_INVOICE).value)) = NrmID(docNo) Then
+            PaymentPlanLinked = True
+            Exit Function
+        End If
+    Next i
+End Function
+
 ' ---- Is this INV/MC row unpaid? (QTE has no payment -> always True) ----
 Private Function IsUnpaidRow(cfg As DocConfig, wsLog As Worksheet, lr As Long) As Boolean
     If cfg.colPaid = 0 Then IsUnpaidRow = True: Exit Function
@@ -27,6 +44,10 @@ Public Sub RenumberOnDeptChange(ByVal docKind As String, ByVal oldNo As String, 
 
     lr = FindLogRow(wsLog, oldNo)
     If lr = 0 Then MsgBox oldNo & " not found for renumber.", vbExclamation: Exit Sub
+    If PaymentPlanLinked(oldNo) Then
+        MsgBox "This document belongs to a payment plan. Use Cancel/Amend Plan instead.", vbExclamation
+        Exit Sub
+    End If
 
     ' UNPAID-ONLY guard
     If Not IsUnpaidRow(cfg, wsLog, lr) Then
@@ -102,6 +123,12 @@ Public Sub RenameDocNumber(ByVal docKind As String, ByVal oldNo As String, ByVal
     oldNo = Trim(oldNo): newNo = Trim(newNo)
     If newNo = "" Then MsgBox "New number is blank.", vbExclamation: Exit Sub
     If NrmID(oldNo) = NrmID(newNo) Then Exit Sub
+    If PaymentPlanLinked(oldNo) Then
+        cfg = GetDocConfig(docKind)
+        ThisWorkbook.Sheets(cfg.sheetName).Range("G7").value = oldNo
+        MsgBox "This document belongs to a payment plan. Use Cancel/Amend Plan instead.", vbExclamation
+        Exit Sub
+    End If
 
     cfg = GetDocConfig(docKind)
     Set wsLog = ThisWorkbook.Sheets(cfg.logName)
@@ -239,6 +266,10 @@ Public Sub RevertQuoteToSaved(Optional ByVal quoteNoIn As String = "")
     If qr = 0 Then MsgBox "Quote " & quoteNo & " not found.", vbExclamation: Exit Sub
 
     invNo = Trim(CStr(wsQ.Cells(qr, QL_CONVINV).value))
+    If PaymentPlanLinked(quoteNo) Or PaymentPlanLinked(invNo) Then
+        MsgBox "This quote/invoice belongs to a payment plan. Use Cancel/Amend Plan; do not delete its financial records.", vbExclamation
+        Exit Sub
+    End If
     If invNo = "" Then
         MsgBox "Quote " & quoteNo & " is not converted ? nothing to revert.", vbInformation
         Exit Sub
