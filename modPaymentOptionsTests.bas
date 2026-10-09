@@ -69,6 +69,8 @@ Public Sub TestPaymentOptionsForm()
     On Error GoTo Failed
     Set component = ThisWorkbook.VBProject.VBComponents("frmPaymentOptions")
     Debug.Assert component.Type = 3
+    Debug.Assert component.Properties("Width") = 680
+    Debug.Assert component.Properties("Height") = 450
     Set form = component.Designer
     For Each name In Array("poSource", "poRecipient", "poDept", "poAligners", "poTotal", _
                           "poPlan", "poPreview", "poCustomer", "poGenerate", "poCancelPlan", _

@@ -45,11 +45,11 @@ Public Sub BuildPaymentOptionsForm()
     Next item
 
     Set component = project.VBComponents.Add(vbext_ct_MSForm)
+    component.Properties("Width") = 680
+    component.Properties("Height") = 450
     Set form = component.Designer
     With form
         .Caption = "Payment Options"
-        .Width = 680
-        .Height = 450
         .BackColor = TEAL
         .ForeColor = &H80000012&
         .BorderStyle = 0
@@ -328,7 +328,7 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "            poDept.Value = UCase$(Trim$(CStr(ws.Cells(i, PP_DEPT).Value)))"
     CodeLine code, "            poStart.Value = Format(ws.Cells(i, PP_DUE).Value, ""yyyy-mm-dd"")"
     CodeLine code, "            SetSourceLocks True"
-    CodeLine code, "            poTotal.Locked = False"
+    CodeLine code, "            poTotal.Locked = (Trim(CStr(poSource.Value)) <> """")"
     CodeLine code, "            poSource.Enabled = False"
     CodeLine code, "            poGenerate.Enabled = False"
     CodeLine code, "            mLoading = False"

@@ -58,6 +58,8 @@ deposit and each monthly installment, with the final amount adjusted for cents.
 Generation uses the existing invoice numbering and layout. Enter a **Plan ID**
 to load a plan for amendment, cancellation or a single-plan statement.
 Patient name and deposit due date are retained as separate inputs.
+Totals remain locked for sourced plans because the engine uses the source
+document's total when amending; manual-plan totals remain editable.
 
 The `PaymentPlans` sheet is created automatically. Settings keys (column A key,
 column B value, starting at row 30) are `DepositPercent` (default 0.5 = 50%),
