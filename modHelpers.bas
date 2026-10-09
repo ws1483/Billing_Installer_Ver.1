@@ -110,6 +110,17 @@ Public Function SafeToWriteNumber(wsLog As Worksheet, docNo As String, _
                                   ByVal expectedRow As Long) As Boolean
     Dim foundRow As Long
     foundRow = FindLogRow(wsLog, docNo)
+    If foundRow > 0 Then
+        Dim statusCol As Long
+        If wsLog.Name = "InvoiceLog" Then statusCol = IL_STATUS
+        If wsLog.Name = "MedAidLog" Then statusCol = ML_STATUS
+        If statusCol > 0 Then
+            If NrmID(CStr(wsLog.Cells(foundRow, statusCol).value)) = "VOIDED" Then
+                MsgBox "Document " & docNo & " is voided. Its financial record cannot be overwritten.", vbExclamation
+                Exit Function
+            End If
+        End If
+    End If
     If foundRow = 0 Then
         SafeToWriteNumber = True
     ElseIf foundRow = expectedRow Then

@@ -31,3 +31,19 @@ End Sub
 Public Sub BtnNewCreditNote()
     MenuNewCreditNote
 End Sub
+
+Public Sub BtnPaymentOptions()
+    frmPaymentOptions.Show
+End Sub
+
+Public Sub BtnDepositsStatement()
+    RunDepositsStatement
+End Sub
+
+Public Sub BtnInstallmentsStatement()
+    RunInstallmentsStatement
+End Sub
+
+Public Sub BtnPaymentPlanStatement()
+    RunSinglePlanStatement
+End Sub

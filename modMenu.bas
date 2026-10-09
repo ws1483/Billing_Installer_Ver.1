@@ -31,6 +31,7 @@ Public Sub RefreshMenuSummary()
 
     If showType <> "INVOICE" Then FillBlock wsM, "QuoteLog", 20, 44
     If showType <> "QUOTE" Then FillInvoiceBlock wsM, 46, 68
+    RefreshPaymentOptionsDashboard
 
 Clean:
     Application.EnableEvents = prevEE
