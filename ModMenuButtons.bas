@@ -31,3 +31,24 @@ End Sub
 Public Sub BtnNewCreditNote()
     MenuNewCreditNote
 End Sub
+
+Public Sub BtnPaymentOptions()
+    On Error GoTo Failed
+    VBA.UserForms.Add("frmPaymentOptions").Show
+    Exit Sub
+Failed:
+    MsgBox "Payment Options is unavailable. Run BuildPaymentOptionsForm once in this workbook. " & _
+           Err.Description, vbExclamation, "Payment Options"
+End Sub
+
+Public Sub BtnDepositsStatement()
+    RunDepositsStatement
+End Sub
+
+Public Sub BtnInstallmentsStatement()
+    RunInstallmentsStatement
+End Sub
+
+Public Sub BtnPaymentPlanStatement()
+    RunSinglePlanStatement
+End Sub
