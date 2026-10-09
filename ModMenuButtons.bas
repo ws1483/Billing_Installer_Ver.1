@@ -52,3 +52,9 @@ End Sub
 Public Sub BtnPaymentPlanStatement()
     RunSinglePlanStatement
 End Sub
+
+Public Sub BtnSavePaymentPlanPDFs()
+    Dim id As String
+    id = Trim$(InputBox("Enter the Plan ID:", "Save payment invoices"))
+    If id <> "" Then modPaymentOptions.SavePlanInvoicePDFs id
+End Sub

@@ -269,13 +269,30 @@ Private Sub ValidateRecipient(ByRef recipient As String, ByRef custID As String,
     End Select
 End Sub
 
-Private Function NewPlanID(ByVal ws As Worksheet) As String
-    Dim n As Long, key As String
-    n = LastPlanRow(ws)
+Public Function PaymentPlanIDBase(ByVal patientName As String, ByVal sourceDocNo As String) As String
+    patientName = Trim$(patientName)
+    sourceDocNo = Trim$(sourceDocNo)
+    If patientName = "" Then Err.Raise 5, , "Enter the patient name for the Plan ID."
+    If sourceDocNo = "" Then sourceDocNo = "Manual"
+    PaymentPlanIDBase = patientName & " - " & sourceDocNo
+End Function
+
+Public Function PaymentSourceMatches(ByVal docNo As String, ByVal patient As String, _
+                                     ByVal customer As String, ByVal query As String) As Boolean
+    query = Trim$(query)
+    PaymentSourceMatches = (query = "" Or InStr(1, docNo, query, vbTextCompare) > 0 Or _
+                           InStr(1, patient, query, vbTextCompare) > 0 Or _
+                           InStr(1, customer, query, vbTextCompare) > 0)
+End Function
+
+Private Function NewPlanID(ByVal ws As Worksheet, ByVal patientName As String, ByVal sourceDocNo As String) As String
+    Dim n As Long, key As String, base As String
+    base = PaymentPlanIDBase(patientName, sourceDocNo)
+    key = base
     Do
-        key = "PP-" & Format$(Now, "yyyymmdd-hhnnss") & "-" & Format$(n, "0000")
         If FindLogRow(ws, key) = 0 Then NewPlanID = key: Exit Function
         n = n + 1
+        key = base & " (" & CStr(n + 1) & ")"
     Loop
 End Function
 
@@ -329,15 +346,16 @@ End Sub
 Public Function GeneratePlanInvoices(ByVal sourceDocNo As String, ByVal aligners As Double, _
         Optional ByVal total As Currency = 0, Optional ByVal recipientType As String = "", _
         Optional ByVal custID As String = "", Optional ByVal patientName As String = "", _
-        Optional ByVal dept As String = "", Optional ByVal startDate As Date = 0) As String
+        Optional ByVal dept As String = "", Optional ByVal startDate As Date = 0, _
+        Optional ByVal depositPercent As Double = -1) As String
     GeneratePlanInvoices = BuildPlan(sourceDocNo, aligners, total, recipientType, custID, _
-                                    patientName, dept, startDate)
+                                    patientName, dept, startDate, "", depositPercent)
 End Function
 
 Private Function BuildPlan(ByVal sourceDocNo As String, ByVal aligners As Double, _
         ByVal total As Currency, ByVal recipient As String, ByVal custID As String, _
         ByVal patientName As String, ByVal dept As String, ByVal startDate As Date, _
-        Optional ByVal retiringPlan As String = "") As String
+        Optional ByVal retiringPlan As String = "", Optional ByVal depositPercent As Double = -1) As String
     Dim ws As Worksheet, src As Worksheet, il As Worksheet, lines As Worksheet
     Dim cfg As DocConfig, invCfg As DocConfig, p As PaymentPlanResult, sourceRow As Long
     Dim r As Long, i As Long, pr As Long, amount As Currency, due As Date
@@ -424,7 +442,7 @@ Private Function BuildPlan(ByVal sourceDocNo As String, ByVal aligners As Double
     End If
     ValidateRecipient recipient, custID, patientName, dept
     If startDate = 0 Then startDate = Date
-    p = CalcPaymentPlan(aligners, total)
+    p = CalcPaymentPlan(aligners, total, depositPercent)
     planTotal = CCur(Fix(CDec(total) * 100 + CDec(0.5)) / 100)
     vatFraction = 0.15 / 1.15
     If Not src Is Nothing And (retiringPlan = "" Or kind = "QTE") Then
@@ -450,7 +468,7 @@ Private Function BuildPlan(ByVal sourceDocNo As String, ByVal aligners As Double
         il.Cells(il.Rows.Count, IL_NO).End(xlUp).Row + p.InstallmentCount + 1 > il.Rows.Count Or _
         lines.Cells(lines.Rows.Count, LN_DOCNO).End(xlUp).Row + p.InstallmentCount + 1 > lines.Rows.Count Then _
         Err.Raise vbObjectError + 722, , "There are not enough worksheet rows for this plan."
-    id = NewPlanID(ws)
+    id = NewPlanID(ws, patientName, sourceDocNo)
     invCfg = GetDocConfig("INV")
     oldEvents = Application.EnableEvents: oldScreen = Application.ScreenUpdating
     Application.EnableEvents = False: Application.ScreenUpdating = False
@@ -617,7 +635,7 @@ Failed:
 End Function
 
 Public Function AmendPaymentPlan(ByVal planID As String, ByVal aligners As Double, _
-        Optional ByVal total As Currency = 0) As String
+        Optional ByVal total As Currency = 0, Optional ByVal depositPercent As Double = -1) As String
     Dim ws As Worksheet, rows As Collection, r As Long
     On Error GoTo Failed
     Set ws = EnsurePaymentPlansSheet()
@@ -625,10 +643,13 @@ Public Function AmendPaymentPlan(ByVal planID As String, ByVal aligners As Doubl
     GuardPlan ws, rows
     r = CLng(rows(1))
     If total = 0 Then total = CCur(Num(ws.Cells(r, PP_TOTAL).Value))
+    If depositPercent = -1 Then
+        depositPercent = Num(ws.Cells(r, PP_DEPOSIT).Value) / Num(ws.Cells(r, PP_TOTAL).Value)
+    End If
     AmendPaymentPlan = BuildPlan(CStr(ws.Cells(r, PP_SOURCE).Value), aligners, total, _
         CStr(ws.Cells(r, PP_RECIP).Value), CStr(ws.Cells(r, PP_CUST).Value), _
         CStr(ws.Cells(r, PP_PATIENT).Value), CStr(ws.Cells(r, PP_DEPT).Value), _
-        CDate(ws.Cells(r, PP_DUE).Value), planID)
+        CDate(ws.Cells(r, PP_DUE).Value), planID, depositPercent)
     Exit Function
 Failed:
     MsgBox "Payment plan was not amended: " & Err.Description, vbExclamation, "Payment options"
@@ -782,11 +803,92 @@ Private Function RecipientEmail(ByVal ws As Worksheet, ByVal r As Long) As Strin
     End If
 End Function
 
+Public Sub SavePlanInvoicePDFs(ByVal planID As String)
+    Dim ws As Worksheet, rows As Collection, item As Variant, path As String, count As Long
+    On Error GoTo Failed
+    Set ws = EnsurePaymentPlansSheet()
+    Set rows = PlanRows(ws, planID)
+    If rows.Count = 0 Then Err.Raise 5, , "Payment plan not found."
+    If MsgBox("Save the deposit and installment invoices as PDFs? Choose a filename/location for each." & _
+              vbCrLf & "Cancel a Save As dialog to stop. Invoices remain saved in the workbook.", _
+              vbQuestion + vbYesNo, "Save plan invoices") <> vbYes Then Exit Sub
+    For Each item In rows
+        If Not IsCancelled(ws, CLng(item)) Then
+            path = modExportPDF.ChoosePaymentInvoicePDF(CStr(ws.Cells(CLng(item), PP_INVOICE).Value), _
+                                                       CStr(ws.Cells(CLng(item), PP_PATIENT).Value))
+            If path = "" Then Exit Sub
+            ExportPaymentInvoicePDF CLng(item), path
+            count = count + 1
+        End If
+    Next item
+    MsgBox CStr(count) & " invoice PDFs saved.", vbInformation
+    Exit Sub
+Failed:
+    MsgBox "PDF saving stopped after " & CStr(count) & " files: " & Err.Description & vbCrLf & _
+           "The plan and invoices remain saved. Run BtnSavePaymentPlanPDFs to retry.", vbExclamation
+End Sub
+
+Private Function ExportPaymentInvoicePDF(ByVal planRow As Long, ByVal path As String) As String
+    Dim ws As Worksheet, invoice As Worksheet, il As Worksheet, lr As Long, docNo As String
+    Dim savedDue As Variant, savedLine As Variant, savedTotals As Variant
+    Dim oldEvents As Boolean, templateEdited As Boolean, errNo As Long, errText As String
+    On Error GoTo Failed
+    Set ws = EnsurePaymentPlansSheet()
+    If ws.ProtectContents Then Err.Raise 5, , "PaymentPlans is protected."
+    If planRow < 2 Or planRow > LastPlanRow(ws) Then Err.Raise 5, , "Payment invoice not found."
+    If IsCancelled(ws, planRow) Then Err.Raise 5, , "Payment invoice is cancelled."
+    docNo = CStr(ws.Cells(planRow, PP_INVOICE).Value)
+    Set il = ThisWorkbook.Worksheets("InvoiceLog")
+    lr = FindLogRow(il, docNo)
+    If lr = 0 Then Err.Raise 5, , "Saved invoice not found."
+    Set invoice = ThisWorkbook.Worksheets("Invoice")
+    invoice.Range("G7").ClearContents
+    RecallInvoice docNo
+    If NrmID(CStr(invoice.Range("G7").Value)) <> NrmID(docNo) Then _
+        Err.Raise vbObjectError + 728, , "Invoice recall did not complete."
+    If Not IsDate(invoice.Range("G6").Value) Then Err.Raise 5, , "Invoice date did not load."
+    If CDate(invoice.Range("G6").Value) <> CDate(il.Cells(lr, IL_DATE).Value) Then _
+        Err.Raise 5, , "Invoice template did not finish loading."
+    savedDue = invoice.Range("G11").Formula
+    savedLine = invoice.Range("E16:F16").Formula
+    savedTotals = invoice.Range("H35:H37").Formula
+    oldEvents = Application.EnableEvents
+    templateEdited = True
+    Application.EnableEvents = False
+    ' Preserve the saved installment VAT allocation rather than a Pricelist lookup.
+    invoice.Range("G11").Value = il.Cells(lr, IL_DUE).Value
+    invoice.Range("E16").Value = il.Cells(lr, IL_SUBTOTAL).Value
+    invoice.Range("F16").Value = il.Cells(lr, IL_VAT).Value
+    invoice.Range("H35").Value = il.Cells(lr, IL_SUBTOTAL).Value
+    invoice.Range("H36").Value = il.Cells(lr, IL_VAT).Value
+    invoice.Range("H37").Value = il.Cells(lr, IL_TOTAL).Value
+    path = modExportPDF.ExportInvoiceForMail(invoice, path)
+    If path = "" Then Err.Raise 5, , "Invoice PDF export failed."
+    invoice.Range("G11").Formula = savedDue
+    invoice.Range("E16:F16").Formula = savedLine
+    invoice.Range("H35:H37").Formula = savedTotals
+    Application.EnableEvents = oldEvents
+    templateEdited = False
+    ws.Cells(planRow, PP_PDF).Value = path
+    ExportPaymentInvoicePDF = path
+    Exit Function
+Failed:
+    errNo = Err.Number: errText = Err.Description
+    If templateEdited Then
+        On Error Resume Next
+        invoice.Range("G11").Formula = savedDue
+        invoice.Range("E16:F16").Formula = savedLine
+        invoice.Range("H35:H37").Formula = savedTotals
+        Application.EnableEvents = oldEvents
+        On Error GoTo 0
+    End If
+    Err.Raise errNo, "ExportPaymentInvoicePDF", errText
+End Function
+
 Public Function MailInstallmentInvoice(ByVal planRow As Long) As Boolean
-    Dim ws As Worksheet, invoice As Worksheet, outlook As Object, mail As Object
+    Dim ws As Worksheet, outlook As Object, mail As Object
     Dim address As String, path As String, docNo As String, status As String, choice As VbMsgBoxResult
-    Dim sent As Boolean, templateEdited As Boolean, oldEvents As Boolean, suffix As Long
-    Dim savedDue As Variant, savedLine As Variant, savedTotals As Variant, il As Worksheet, lr As Long
+    Dim sent As Boolean, suffix As Long
     Dim errText As String
     On Error GoTo Failed
     RefreshPaymentPlans
@@ -815,37 +917,7 @@ Public Function MailInstallmentInvoice(ByVal planRow As Long) As Boolean
         path = ThisWorkbook.Path & Application.PathSeparator & docNo & "_" & _
             Format$(Now, "yyyymmdd_hhnnss") & "_" & CStr(suffix) & ".pdf"
     Loop
-    Set invoice = ThisWorkbook.Worksheets("Invoice")
-    invoice.Range("G7").ClearContents
-    RecallInvoice docNo
-    If NrmID(CStr(invoice.Range("G7").Value)) <> NrmID(docNo) Then _
-        Err.Raise vbObjectError + 728, , "Invoice recall did not complete."
-    Set il = ThisWorkbook.Worksheets("InvoiceLog")
-    lr = FindLogRow(il, docNo)
-    If Not IsDate(invoice.Range("G6").Value) Then Err.Raise vbObjectError + 728, , "Invoice date did not load."
-    If CDate(invoice.Range("G6").Value) <> CDate(il.Cells(lr, IL_DATE).Value) Then _
-        Err.Raise vbObjectError + 728, , "Invoice template did not finish loading."
-    savedDue = invoice.Range("G11").Formula
-    savedLine = invoice.Range("E16:F16").Formula
-    savedTotals = invoice.Range("H35:H37").Formula
-    oldEvents = Application.EnableEvents
-    templateEdited = True
-    Application.EnableEvents = False
-    ' Synthetic installment lines need their saved tax allocation, not Pricelist lookup.
-    invoice.Range("G11").Value = il.Cells(lr, IL_DUE).Value
-    invoice.Range("E16").Value = il.Cells(lr, IL_SUBTOTAL).Value
-    invoice.Range("F16").Value = il.Cells(lr, IL_VAT).Value
-    invoice.Range("H35").Value = il.Cells(lr, IL_SUBTOTAL).Value
-    invoice.Range("H36").Value = il.Cells(lr, IL_VAT).Value
-    invoice.Range("H37").Value = il.Cells(lr, IL_TOTAL).Value
-    path = modExportPDF.ExportInvoiceForMail(invoice, path)
-    If path = "" Then Err.Raise vbObjectError + 728, , "Invoice PDF export failed."
-    invoice.Range("G11").Formula = savedDue
-    invoice.Range("E16:F16").Formula = savedLine
-    invoice.Range("H35:H37").Formula = savedTotals
-    Application.EnableEvents = oldEvents
-    templateEdited = False
-    ws.Cells(planRow, PP_PDF).Value = path
+    path = ExportPaymentInvoicePDF(planRow, path)
     Set outlook = CreateObject("Outlook.Application")
     Set mail = outlook.CreateItem(0)
     mail.To = address
@@ -863,14 +935,6 @@ Public Function MailInstallmentInvoice(ByVal planRow As Long) As Boolean
     Exit Function
 Failed:
     errText = Err.Description
-    If templateEdited Then
-        On Error Resume Next
-        invoice.Range("G11").Formula = savedDue
-        invoice.Range("E16:F16").Formula = savedLine
-        invoice.Range("H35:H37").Formula = savedTotals
-        Application.EnableEvents = oldEvents
-        On Error GoTo 0
-    End If
     If sent Then
         MailInstallmentInvoice = True
         MsgBox "Outlook accepted the email, but tracking failed: " & errText, vbExclamation, "Payment options"

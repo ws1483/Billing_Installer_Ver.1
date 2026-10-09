@@ -72,8 +72,9 @@ Public Sub BuildPaymentOptionsForm()
     AddField form, "TextBox", "poTotal", "Quote Total (VAT inclusive)", 167, 124, 145
     AddField form, "TextBox", "poStart", "Deposit Due (yyyy-mm-dd)", 332, 124, 160
     AddField form, "TextBox", "poPlanID", "Plan ID (lookup / amend / cancel)", 502, 124, 160
-    AddLabel form, "Plan Summary", 12, 174, 650, True
-    Set item = AddControl(form, "TextBox", "poPlan", 12, 194, 650, 34)
+    AddField form, "TextBox", "poDepositPercent", "Deposit % (0-100)", 12, 170, 145
+    AddLabel form, "Plan Summary", 167, 174, 495, True
+    Set item = AddControl(form, "TextBox", "poPlan", 167, 194, 495, 34)
     item.MultiLine = True
     item.Locked = True
     item.TabStop = False
@@ -98,7 +99,10 @@ Public Sub BuildPaymentOptionsForm()
     AddButton form, "poClose", "Close", 512, 402, 150
     form.Controls("poClose").Cancel = True
 
-    InjectPaymentOptionsCode component.CodeModule
+    With component.CodeModule
+        If .CountOfLines > 0 Then .DeleteLines 1, .CountOfLines
+        .AddFromString PaymentOptionsCode()
+    End With
     ' Retain the old form until construction and the final rename have succeeded.
     If Not existing Is Nothing Then
         backupName = AvailableComponentName(project)
@@ -179,11 +183,11 @@ Private Sub AddButton(ByVal form As Object, ByVal name As String, ByVal caption 
 End Sub
 
 Private Sub CodeLine(ByVal code As Object, ByVal text As String)
-    code.InsertLines code.CountOfLines + 1, text
+    code.Add text
 End Sub
 
-Private Sub InjectPaymentOptionsCode(ByVal code As Object)
-    If code.CountOfLines > 0 Then code.DeleteLines 1, code.CountOfLines
+Public Function PaymentOptionsCode() As String
+    Dim code As New Collection, text As String, line As Variant
     CodeLine code, "Option Explicit"
     CodeLine code, ""
     CodeLine code, "Private mLoading As Boolean"
@@ -201,6 +205,11 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "    poDept.AddItem ""All"": poDept.AddItem ""WA"": poDept.AddItem ""WD"": poDept.AddItem ""MC"""
     CodeLine code, "    poDept.Value = ""WA"""
     CodeLine code, "    poStart.Value = Format(Date, ""yyyy-mm-dd"")"
+    CodeLine code, "    poDepositPercent.Value = Format(modPaymentOptions.GetDepositPercent() * 100, ""0.########"")"
+    CodeLine code, "    poSource.MatchEntry = 2"
+    CodeLine code, "    poSource.MatchRequired = False"
+    CodeLine code, "    poSource.ColumnCount = 3"
+    CodeLine code, "    poSource.ColumnWidths = ""110 pt;130 pt;90 pt"""
     CodeLine code, "    For Each sheetName In Array(""QuoteLog"", ""InvoiceLog"", ""MedAidLog"")"
     CodeLine code, "        Set ws = Nothing"
     CodeLine code, "        On Error Resume Next"
@@ -208,7 +217,7 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "        On Error GoTo Failed"
     CodeLine code, "        If Not ws Is Nothing Then"
     CodeLine code, "            For i = 2 To ws.Cells(ws.Rows.Count, 1).End(xlUp).Row"
-    CodeLine code, "                If Trim(CStr(ws.Cells(i, 1).Value)) <> """" Then poSource.AddItem ws.Cells(i, 1).Value"
+    CodeLine code, "                AddSourceRow ws, i, """""
     CodeLine code, "            Next i"
     CodeLine code, "        End If"
     CodeLine code, "    Next sheetName"
@@ -218,6 +227,72 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "Failed:"
     CodeLine code, "    mLoading = False"
     CodeLine code, "    MsgBox ""Payment Options initialization: "" & Err.Description, vbExclamation"
+    CodeLine code, "End Sub"
+    CodeLine code, ""
+    CodeLine code, "Private Function DepositFraction() As Double"
+    CodeLine code, "    If Not IsNumeric(poDepositPercent.Value) Then Err.Raise 5, , ""Enter a deposit percentage between 0 and 100."""
+    CodeLine code, "    DepositFraction = CDbl(poDepositPercent.Value) / 100"
+    CodeLine code, "    If DepositFraction < 0 Or DepositFraction > 1 Then Err.Raise 5, , ""Deposit percentage must be between 0 and 100."""
+    CodeLine code, "End Function"
+    CodeLine code, ""
+    CodeLine code, "Private Sub poDepositPercent_Change()"
+    CodeLine code, "    If Not mLoading And Not mReminder Then UpdatePreview"
+    CodeLine code, "End Sub"
+    CodeLine code, ""
+    CodeLine code, "Private Sub AddSourceRow(ByVal ws As Worksheet, ByVal row As Long, ByVal query As String)"
+    CodeLine code, "    Dim doc As String, patient As String, customer As String, patientCol As Long, customerCol As Long"
+    CodeLine code, "    doc = CStr(ws.Cells(row, 1).Value)"
+    CodeLine code, "    If Trim$(doc) = """" Then Exit Sub"
+    CodeLine code, "    Select Case ws.Name"
+    CodeLine code, "        Case ""QuoteLog"": patientCol = QL_PATIENT: customerCol = QL_CUST"
+    CodeLine code, "        Case ""InvoiceLog"": patientCol = IL_PATIENT: customerCol = IL_CUST"
+    CodeLine code, "        Case ""MedAidLog"": patientCol = ML_PATIENT: customerCol = ML_CUST"
+    CodeLine code, "    End Select"
+    CodeLine code, "    patient = CStr(ws.Cells(row, patientCol).Value)"
+    CodeLine code, "    customer = CStr(ws.Cells(row, customerCol).Value)"
+    CodeLine code, "    If Not modPaymentOptions.PaymentSourceMatches(doc, patient, customer, query) Then Exit Sub"
+    CodeLine code, "    poSource.AddItem doc"
+    CodeLine code, "    poSource.List(poSource.ListCount - 1, 1) = patient"
+    CodeLine code, "    poSource.List(poSource.ListCount - 1, 2) = customer"
+    CodeLine code, "End Sub"
+    CodeLine code, ""
+    CodeLine code, "Private Sub poSource_Change()"
+    CodeLine code, "    Dim query As String, ws As Worksheet, sheetName As Variant, i As Long, cursor As Long"
+    CodeLine code, "    If mLoading Or mReminder Then Exit Sub"
+    CodeLine code, "    If poSource.ListIndex >= 0 Then LoadSource: Exit Sub"
+    CodeLine code, "    On Error GoTo Failed"
+    CodeLine code, "    query = poSource.Text"
+    CodeLine code, "    cursor = poSource.SelStart"
+    CodeLine code, "    mLoading = True"
+    CodeLine code, "    poSource.Clear"
+    CodeLine code, "    For Each sheetName In Array(""QuoteLog"", ""InvoiceLog"", ""MedAidLog"")"
+    CodeLine code, "        Set ws = Nothing"
+    CodeLine code, "        On Error Resume Next"
+    CodeLine code, "        Set ws = ThisWorkbook.Worksheets(CStr(sheetName))"
+    CodeLine code, "        On Error GoTo Failed"
+    CodeLine code, "        If Not ws Is Nothing Then"
+    CodeLine code, "            For i = 2 To ws.Cells(ws.Rows.Count, 1).End(xlUp).Row"
+    CodeLine code, "                AddSourceRow ws, i, query"
+    CodeLine code, "            Next i"
+    CodeLine code, "        End If"
+    CodeLine code, "    Next sheetName"
+    CodeLine code, "    poSource.Text = query"
+    CodeLine code, "    poSource.SelStart = cursor"
+    CodeLine code, "    SetSourceLocks False"
+    CodeLine code, "    mLoading = False"
+    CodeLine code, "    If query <> """" And poSource.ListCount > 0 Then poSource.DropDown"
+    CodeLine code, "    Exit Sub"
+    CodeLine code, "Failed:"
+    CodeLine code, "    mLoading = False"
+    CodeLine code, "    MsgBox ""Source search: "" & Err.Description, vbExclamation"
+    CodeLine code, "End Sub"
+    CodeLine code, ""
+    CodeLine code, "Private Sub RequireSourceSelection()"
+    CodeLine code, "    If Trim$(CStr(poSource.Value)) = """" Then Exit Sub"
+    CodeLine code, "    If poSource.ListIndex < 0 Then"
+    CodeLine code, "        If poSource.ListCount <> 1 Then Err.Raise 5, , ""Select a source from the matching results, or clear the source for a manual plan."""
+    CodeLine code, "        poSource.ListIndex = 0"
+    CodeLine code, "    End If"
     CodeLine code, "End Sub"
     CodeLine code, ""
     CodeLine code, "Private Function RecipientCode() As String"
@@ -237,7 +312,7 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "    End Select"
     CodeLine code, "End Sub"
     CodeLine code, ""
-    CodeLine code, "Private Sub poSource_Change()"
+    CodeLine code, "Private Sub LoadSource()"
     CodeLine code, "    Dim ws As Worksheet, lr As Long, source As String"
     CodeLine code, "    If mLoading Or mReminder Then Exit Sub"
     CodeLine code, "    On Error GoTo Failed"
@@ -327,6 +402,7 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "            poPatient.Value = ws.Cells(i, PP_PATIENT).Value"
     CodeLine code, "            poDept.Value = UCase$(Trim$(CStr(ws.Cells(i, PP_DEPT).Value)))"
     CodeLine code, "            poStart.Value = Format(ws.Cells(i, PP_DUE).Value, ""yyyy-mm-dd"")"
+    CodeLine code, "            poDepositPercent.Value = Format(modHelpers.Num(ws.Cells(i, PP_DEPOSIT).Value) / modHelpers.Num(ws.Cells(i, PP_TOTAL).Value) * 100, ""0.########"")"
     CodeLine code, "            SetSourceLocks True"
     CodeLine code, "            poTotal.Locked = (Trim(CStr(poSource.Value)) <> """")"
     CodeLine code, "            poSource.Enabled = False"
@@ -348,8 +424,8 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "    poPreview.Value = """""
     CodeLine code, "    If Not IsDate(poStart.Value) Then Err.Raise 5, , ""Enter a valid deposit due date."""
     CodeLine code, "    startD = CDate(poStart.Value)"
-    CodeLine code, "    p = modPaymentOptions.CalcPaymentPlan(modHelpers.Num(poAligners.Value), modHelpers.Num(poTotal.Value))"
-    CodeLine code, "    poPlan.Value = Format(modPaymentOptions.GetDepositPercent(), ""0.##%"") & "" deposit; "" & _"
+    CodeLine code, "    p = modPaymentOptions.CalcPaymentPlan(modHelpers.Num(poAligners.Value), modHelpers.Num(poTotal.Value), DepositFraction())"
+    CodeLine code, "    poPlan.Value = Format(DepositFraction(), ""0.##%"") & "" deposit; "" & _"
     CodeLine code, "        Format(p.TreatmentWeeks, ""0.##"") & "" treatment weeks; "" & p.InstallmentCount & _"
     CodeLine code, "        "" months; monthly R"" & Format(p.MonthlyAmount, ""#,##0.00"") & "" (final month adjusted)."""
     CodeLine code, "    For i = 0 To p.InstallmentCount"
@@ -366,16 +442,24 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "Private Sub poGenerate_Click()"
     CodeLine code, "    Dim id As String"
     CodeLine code, "    On Error GoTo Failed"
+    CodeLine code, "    RequireSourceSelection"
     CodeLine code, "    If Not IsDate(poStart.Value) Then Err.Raise 5, , ""Enter a valid deposit due date."""
     CodeLine code, "    If MsgBox(""Generate the deposit and all installment invoices? An unpaid source invoice will be replaced, not charged twice."", _"
     CodeLine code, "        vbQuestion + vbYesNo, ""Payment Options"") <> vbYes Then Exit Sub"
     CodeLine code, "    id = modPaymentOptions.GeneratePlanInvoices(CStr(poSource.Value), modHelpers.Num(poAligners.Value), _"
     CodeLine code, "        modHelpers.Num(poTotal.Value), RecipientCode(), CStr(poCustomer.Value), _"
-    CodeLine code, "        CStr(poPatient.Value), CStr(poDept.Value), CDate(poStart.Value))"
-    CodeLine code, "    If id <> """" Then poPlanID.Value = id: MsgBox ""Plan created: "" & id, vbInformation"
+    CodeLine code, "        CStr(poPatient.Value), CStr(poDept.Value), CDate(poStart.Value), DepositFraction())"
+    CodeLine code, "    If id <> """" Then"
+    CodeLine code, "        poPlanID.Value = id"
+    CodeLine code, "        MsgBox ""Plan created: "" & id, vbInformation"
+    CodeLine code, "        Me.Hide"
+    CodeLine code, "        modPaymentOptions.SavePlanInvoicePDFs id"
+    CodeLine code, "        Me.Show"
+    CodeLine code, "    End If"
     CodeLine code, "    Exit Sub"
     CodeLine code, "Failed:"
     CodeLine code, "    MsgBox ""Generate plan error: "" & Err.Description, vbExclamation"
+    CodeLine code, "    If Not Me.Visible Then Me.Show"
     CodeLine code, "End Sub"
     CodeLine code, ""
     CodeLine code, "Private Sub poCancelPlan_Click()"
@@ -395,11 +479,18 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "    If Trim(CStr(poPlanID.Value)) = """" Then MsgBox ""Enter the Plan ID."", vbExclamation: Exit Sub"
     CodeLine code, "    If MsgBox(""Replace this unpaid, unsent plan using the current total and aligner count?"", _"
     CodeLine code, "        vbQuestion + vbYesNo) <> vbYes Then Exit Sub"
-    CodeLine code, "    id = modPaymentOptions.AmendPaymentPlan(CStr(poPlanID.Value), modHelpers.Num(poAligners.Value), modHelpers.Num(poTotal.Value))"
-    CodeLine code, "    If id <> """" Then poPlanID.Value = id: MsgBox ""Replacement plan: "" & id, vbInformation"
+    CodeLine code, "    id = modPaymentOptions.AmendPaymentPlan(CStr(poPlanID.Value), modHelpers.Num(poAligners.Value), modHelpers.Num(poTotal.Value), DepositFraction())"
+    CodeLine code, "    If id <> """" Then"
+    CodeLine code, "        poPlanID.Value = id"
+    CodeLine code, "        MsgBox ""Replacement plan: "" & id, vbInformation"
+    CodeLine code, "        Me.Hide"
+    CodeLine code, "        modPaymentOptions.SavePlanInvoicePDFs id"
+    CodeLine code, "        Me.Show"
+    CodeLine code, "    End If"
     CodeLine code, "    Exit Sub"
     CodeLine code, "Failed:"
     CodeLine code, "    MsgBox ""Amend plan error: "" & Err.Description, vbExclamation"
+    CodeLine code, "    If Not Me.Visible Then Me.Show"
     CodeLine code, "End Sub"
     CodeLine code, ""
     CodeLine code, "Private Sub poDeposits_Click()"
@@ -447,7 +538,7 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "        ctl.Visible = False"
     CodeLine code, "    Next ctl"
     CodeLine code, "    poPlan.Visible = True: poSchedule.Visible = True: poMail.Visible = True: poClose.Visible = True"
-    CodeLine code, "    poPlan.Top = 12"
+    CodeLine code, "    poPlan.Left = 12: poPlan.Width = 650: poPlan.Top = 12"
     CodeLine code, "    poPlan.Value = ""Unpaid, unsent installments due soon or overdue. Select an invoice and click Mail Installment."""
     CodeLine code, "    poSchedule.Top = 55: poSchedule.Height = 299: poSchedule.Clear"
     CodeLine code, "    For Each pr In mDueRows"
@@ -487,4 +578,8 @@ Private Sub InjectPaymentOptionsCode(ByVal code As Object)
     CodeLine code, "Private Sub poClose_Click()"
     CodeLine code, "    Unload Me"
     CodeLine code, "End Sub"
-End Sub
+    For Each line In code
+        text = text & CStr(line) & vbCrLf
+    Next line
+    PaymentOptionsCode = text
+End Function

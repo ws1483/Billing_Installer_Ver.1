@@ -14,6 +14,19 @@ Public Sub TestPaymentOptions()
     Next i
     Debug.Assert sum = 20000
 
+    p = CalcPaymentPlan(10, 20000, 0.3, 2, 4.345)
+    Debug.Assert p.Deposit = 6000
+    Debug.Assert p.MonthlyAmount = 2800
+    AssertSchedule p, 20000
+    Debug.Assert PaymentPlanIDBase(" Jane Doe ", " Q-WA-0001 ") = "Jane Doe - Q-WA-0001"
+    Debug.Assert PaymentPlanIDBase("Jane Doe", "") = "Jane Doe - Manual"
+    Debug.Assert PaymentSourceMatches("Q-WA-0001", "Jane Doe", "DR01", "wa-00")
+    Debug.Assert PaymentSourceMatches("Q-WA-0001", "Jane Doe", "DR01", " jane ")
+    Debug.Assert PaymentSourceMatches("Q-WA-0001", "Jane Doe", "DR01", "dr0")
+    Debug.Assert PaymentSourceMatches("Q-WA-0001", "Jane Doe", "DR01", "")
+    Debug.Assert Not PaymentSourceMatches("Q-WA-0001", "Jane Doe", "DR01", "Missing")
+    TestPaymentOptionsCode
+
     p = CalcPaymentPlan(3, 100, 0.5, 2, 4.345)
     Debug.Assert p.InstallmentCount = 1
     AssertSchedule p, 100
@@ -39,6 +52,22 @@ Public Sub TestPaymentOptions()
     AssertInvalid 10, 100, 0.5, 0, 4.345
     AssertInvalid 10, 100, 0.5, 2, 0
     MsgBox "Payment Options calculation assertions completed.", vbInformation
+End Sub
+
+Public Sub TestPaymentOptionsCode()
+    Dim source As String, lines As Variant, i As Long
+    source = modBuildPaymentOptionsForm.PaymentOptionsCode()
+    Debug.Assert Left$(source, Len("Option Explicit")) = "Option Explicit"
+    Debug.Assert InStr(source, "Begin {") = 0
+    lines = Split(source, vbCrLf)
+    For i = 0 To UBound(lines) - 1
+        If Right$(Trim$(CStr(lines(i))), 1) = "_" Then
+            Debug.Assert Len(Trim$(CStr(lines(i + 1)))) > 0
+        End If
+    Next i
+    Debug.Assert InStr(source, "DepositFraction()") > 0
+    Debug.Assert InStr(source, "RequireSourceSelection") > 0
+    Debug.Assert InStr(source, "SavePlanInvoicePDFs id") > 0
 End Sub
 
 Private Sub AssertSchedule(p As PaymentPlanResult, expected As Currency)
@@ -74,7 +103,7 @@ Public Sub TestPaymentOptionsForm()
     Set form = component.Designer
     For Each name In Array("poSource", "poRecipient", "poDept", "poAligners", "poTotal", _
                           "poPlan", "poPreview", "poCustomer", "poGenerate", "poCancelPlan", _
-                          "poAmend", "poDeposits", "poInstallments", "poSingle", "poMail", "poClose")
+                          "poAmend", "poDeposits", "poInstallments", "poSingle", "poMail", "poClose", "poDepositPercent")
         Debug.Assert form.Controls(CStr(name)).Name = CStr(name)
     Next name
     Debug.Assert form.BackColor = &H00B0872E&
@@ -92,6 +121,13 @@ Public Sub TestPaymentOptionsForm()
     source = component.CodeModule.Lines(1, component.CodeModule.CountOfLines)
     Debug.Assert Left$(source, Len("Option Explicit")) = "Option Explicit"
     Debug.Assert InStr(source, "Begin {") = 0
+    Dim codeLines As Variant, line As Long
+    codeLines = Split(source, vbCrLf)
+    For line = 0 To UBound(codeLines) - 1
+        If Right$(Trim$(CStr(codeLines(line))), 1) = "_" Then
+            Debug.Assert Len(Trim$(CStr(codeLines(line + 1)))) > 0
+        End If
+    Next line
     For Each name In Array("CalcPaymentPlan", "GeneratePlanInvoices", "CancelPaymentPlan", _
                           "AmendPaymentPlan", "RunDepositsStatement", "RunInstallmentsStatement", _
                           "RunSinglePlanStatement", "MailInstallmentInvoice")
@@ -102,9 +138,16 @@ Public Sub TestPaymentOptionsForm()
     Debug.Assert form.Controls("poDept").ListCount = 4
     form.Controls("poAligners").Value = 10
     form.Controls("poTotal").Value = 20000
+    form.Controls("poDepositPercent").Value = 30
     Debug.Assert InStr(form.Controls("poPlan").Value, "deposit;") > 0
     Debug.Assert InStr(form.Controls("poPreview").Value, "Deposit") > 0
     Debug.Assert InStr(form.Controls("poPreview").Value, "Month 1") > 0
+    Debug.Assert InStr(form.Controls("poPlan").Value, "30%") > 0
+    Debug.Assert InStr(form.Controls("poPreview").Value, "6,000.00") > 0
+    form.Controls("poDepositPercent").Value = 101
+    Debug.Assert Left$(form.Controls("poPlan").Value, 8) = "Preview:"
+    Debug.Assert form.Controls("poPreview").Value = ""
+    form.Controls("poDepositPercent").Value = 30
     form.Controls("poTotal").Value = 0
     Debug.Assert Left$(form.Controls("poPlan").Value, 8) = "Preview:"
     Debug.Assert form.Controls("poPreview").Value = ""
