@@ -22,6 +22,121 @@ Private mPaymentsIdx As Object
 Private mPaymentsIdxSheet As String
 Private mPaymentsIdxCutoff As Double
 
+' Filtered plan statements share the template, payment index, aging and PDF path.
+Public Sub RunPaymentPlanStatement(planRows As Collection, title As String)
+    Dim ws As Worksheet, wsPlans As Worksheet, wsLog As Worksheet, wsPay As Worksheet
+    Dim idx As Object, pr As Variant, lr As Long, r As Long, off As Long, needRows As Long
+    Dim docNo As String, paid As Double, amount As Double, balance As Double, running As Double
+    Dim tInv As Double, tPaid As Double, ageCur As Double, age30 As Double
+    Dim vatDue As Double, lineVat As Double
+    Dim age60 As Double, age90 As Double, days As Long, dueD As Date
+    Dim folder As String, fpath As String, dFrom As Date, dTo As Date, fileTitle As String, ch As Variant
+    On Error GoTo Fail
+    If planRows.Count = 0 Then
+        MsgBox "No matching payment-plan invoices.", vbInformation
+        Exit Sub
+    End If
+    Set wsPlans = ThisWorkbook.Sheets("PaymentPlans")
+    Set wsLog = ThisWorkbook.Sheets("InvoiceLog")
+    Set wsPay = ThisWorkbook.Sheets("Payments")
+    Set idx = BuildPaymentsIndex(wsPay, Date)
+    Set ws = ResetStatementSheet()
+    dFrom = Date: dTo = Date
+    ws.Range("A3").value = title
+    ws.Range("B5").value = "Payment Options - selected invoices only"
+    ws.Range("G5").value = Format(Date, "yyyy-mm-dd")
+    ws.Cells(FIRST_LINE_ROW - 1, 1).value = "Due date"
+    ws.Cells(FIRST_LINE_ROW - 1, 2).value = "Invoice"
+    ws.Cells(FIRST_LINE_ROW - 1, 3).value = "Plan / account / patient"
+    ws.Cells(FIRST_LINE_ROW - 1, 4).value = "Status"
+    ws.Cells(FIRST_LINE_ROW - 1, 5).value = "Amount"
+    ws.Cells(FIRST_LINE_ROW - 1, 6).value = "Paid"
+    ws.Cells(FIRST_LINE_ROW - 1, 7).value = "Balance"
+    ws.Cells(FIRST_LINE_ROW - 1, 8).value = "Running due"
+    ' Account credits are deliberately excluded: they cannot be attributed to a plan.
+    needRows = planRows.Count + GAP_ROWS - (TOTALS_ORIG_ROW - FIRST_LINE_ROW)
+    If needRows > 0 Then
+        ws.Rows(TOTALS_ORIG_ROW & ":" & (TOTALS_ORIG_ROW + needRows - 1)).Insert Shift:=xlDown
+        off = needRows
+    End If
+    r = FIRST_LINE_ROW
+    For Each pr In planRows
+        docNo = CStr(wsPlans.Cells(CLng(pr), PP_INVOICE).value)
+        lr = FindLogRow(wsLog, docNo)
+        If lr = 0 Then Err.Raise vbObjectError + 603, , "Plan invoice missing: " & docNo
+        amount = Num(wsLog.Cells(lr, IL_TOTAL).value)
+        paid = PaymentsAsOfIdx(idx, docNo, Date)
+        balance = LiveOutstanding(amount, idx, docNo, Date)
+        lineVat = 0
+        If amount > 0 Then
+            ' Allocate the saved tax proportionally after payments, including zero-rated sources.
+            lineVat = Round(balance * Num(wsLog.Cells(lr, IL_VAT).value) / amount, 2)
+            If lineVat < 0 Then lineVat = 0
+            If lineVat > balance Then lineVat = balance
+        End If
+        vatDue = vatDue + lineVat
+        dueD = CDate(wsPlans.Cells(CLng(pr), PP_DUE).value)
+        If dueD < dFrom Then dFrom = dueD
+        If dueD > dTo Then dTo = dueD
+        running = running + balance
+        tInv = tInv + amount: tPaid = tPaid + paid
+        ws.Cells(r, 1).value = Format(dueD, "dd/mm/yyyy")
+        ws.Cells(r, 2).value = docNo
+        ws.Cells(r, 3).value = CStr(wsPlans.Cells(CLng(pr), PP_PLANID).value) & " / " & _
+            CStr(wsPlans.Cells(CLng(pr), PP_CUST).value) & " / " & _
+            CStr(wsPlans.Cells(CLng(pr), PP_PATIENT).value)
+        ws.Cells(r, 4).value = CStr(wsPlans.Cells(CLng(pr), PP_STATUS).value)
+        ws.Cells(r, 5).value = amount
+        ws.Cells(r, 6).value = paid
+        ws.Cells(r, 7).value = balance
+        ws.Cells(r, 8).value = running
+        days = CLng(Date - dueD)
+        If days <= 0 Then
+            ageCur = ageCur + balance
+        ElseIf days <= 30 Then
+            age30 = age30 + balance
+        ElseIf days <= 60 Then
+            age60 = age60 + balance
+        Else
+            age90 = age90 + balance
+        End If
+        r = r + 1
+    Next pr
+    ws.Range("G8").value = Format(dFrom, "yyyy-mm-dd")
+    ws.Range("G9").value = Format(dTo, "yyyy-mm-dd")
+    ws.Range("G10").value = running
+    ws.Range("H" & (19 + off)).value = tInv
+    ws.Range("H" & (20 + off)).value = tPaid
+    ws.Range("H" & (21 + off)).value = 0
+    ws.Range("H" & (22 + off)).value = Round(running - vatDue, 2)
+    ws.Range("H" & (23 + off)).value = vatDue
+    ws.Range("H" & (24 + off)).value = running
+    ws.Range("E" & (27 + off)).value = ageCur
+    ws.Range("F" & (27 + off)).value = age30
+    ws.Range("G" & (27 + off)).value = age60
+    ws.Range("H" & (27 + off)).value = age90
+    FormatStatement ws, r - 1, off
+    PaginateStatement ws, FOOTER_LAST_ROW + off
+    ws.Activate
+    If MsgBox(title & " is ready. Create PDF now?", vbQuestion + vbYesNo) = vbYes Then
+        folder = StmtPickFolder()
+        If folder <> "" Then
+            fileTitle = title
+            For Each ch In Array("\", "/", ":", "*", "?", """", "<", ">", "|")
+                fileTitle = Replace(fileTitle, CStr(ch), "-")
+            Next ch
+            fileTitle = fileTitle & "_" & Format(Now, "yyyymmdd_hhnnss")
+            fpath = ExportStatementPDF(ws, fileTitle, dFrom, dTo, folder)
+            LogStatement "PAYMENTPLANS", title, "All", dFrom, dTo, tInv, tPaid, 0, running, fpath
+            LogAudit "Statement", "PAYMENTPLANS", "", fpath, title
+        End If
+    End If
+    Exit Sub
+Fail:
+    Application.DisplayAlerts = True
+    MsgBox "Payment Options statement error: " & Err.Description, vbExclamation
+End Sub
+
 Private Function NrmID(s As String) As String
     NrmID = UCase(Replace(Trim(s), " ", ""))
 End Function
@@ -373,7 +488,9 @@ Public Sub RecallStatement()
                 ThisWorkbook.FollowHyperlink pdfPath
             End If
         Case vbNo
-            If UCase(CStr(wsL.Cells(foundRow, "C").value)) = "PATIENT" Then
+            If UCase(CStr(wsL.Cells(foundRow, "C").value)) = "PAYMENTPLANS" Then
+                MsgBox "Use the Payment Options statement buttons to reselect the plan/account filter.", vbInformation
+            ElseIf UCase(CStr(wsL.Cells(foundRow, "C").value)) = "PATIENT" Then
                 RunSinglePatientStatement drName, dFrom, dTo, dept
             Else
                 RunSingleStatement drName, dFrom, dTo, dept
@@ -1383,4 +1500,3 @@ Private Function DeptStmtTitle(dept As String) As String
         Case Else: DeptStmtTitle = tWA & " / " & tWD & " Statement"
     End Select
 End Function
-
