@@ -94,8 +94,10 @@ End Function
 Public Sub RecoverEmptyPaymentPlans()
     Dim ws As Worksheet, archived As Object, fresh As Worksheet
     Dim backupPath As String, stem As String, extension As String, dot As Long, suffix As Long
+    Dim picker As Object, backupFolder As String, stage As String
     Dim oldEvents As Boolean, eventsSaved As Boolean, renamed As Boolean, failure As String
     On Error GoTo Failed
+    stage = "checking recovery eligibility"
     If mWriting Or mRefreshing Then Err.Raise 5, , "A payment plan update is running."
     If ThisWorkbook.Path = "" Or ThisWorkbook.ReadOnly Then _
         Err.Raise 5, , "Save a writable workbook copy before recovery."
@@ -121,19 +123,36 @@ Public Sub RecoverEmptyPaymentPlans()
     dot = InStrRev(ThisWorkbook.Name, ".")
     If dot = 0 Then Err.Raise 5, , "Workbook filename must have an extension."
     extension = Mid$(ThisWorkbook.Name, dot)
-    stem = ThisWorkbook.Path & Application.PathSeparator & Left$(ThisWorkbook.Name, dot - 1) & _
-        "_BeforePaymentPlansReset_" & Format$(Now, "yyyymmdd_hhnnss")
+    stage = "choosing the backup folder"
+    Set picker = Application.FileDialog(4)
+    picker.Title = "Choose a local folder for the workbook recovery backup"
+    If picker.Show <> -1 Then Exit Sub
+    backupFolder = CStr(picker.SelectedItems(1))
+    If Trim$(backupFolder) = "" Or InStr(1, backupFolder, "://", vbTextCompare) > 0 Then _
+        Err.Raise 5, , "Choose a local filesystem folder, not a OneDrive / SharePoint web address."
+    If Right$(backupFolder, 1) <> Application.PathSeparator Then _
+        backupFolder = backupFolder & Application.PathSeparator
+    ' A short filename avoids extending an already long workbook filename.
+    stem = backupFolder & "PaymentPlansRecovery_" & Format$(Now, "yyyymmdd_hhnnss")
     backupPath = stem & extension
+    stage = "checking the backup filename"
     Do While Dir$(backupPath) <> ""
         suffix = suffix + 1
         backupPath = stem & "_" & CStr(suffix) & extension
     Loop
+    stage = "saving the workbook backup"
     ThisWorkbook.SaveCopyAs backupPath
+    stage = "verifying the workbook backup"
+    If Dir$(backupPath) = "" Then Err.Raise 5, , "The backup file could not be verified. No sheets were changed."
+    If FileLen(backupPath) = 0 Then Err.Raise 5, , "The backup file is empty. No sheets were changed."
     ' Recheck after confirmation and backup, before changing any sheet name.
+    stage = "rechecking PaymentPlans"
     If PaymentPlansHasData(ws) Then Err.Raise 5, , "PaymentPlans is no longer empty. Recovery stopped."
     oldEvents = Application.EnableEvents: eventsSaved = True
     Application.EnableEvents = False
+    stage = "archiving the empty sheet"
     ws.Name = "PaymentPlans_Backup": renamed = True
+    stage = "creating the new PaymentPlans layout"
     Set fresh = EnsurePaymentPlansSheet()
     Application.EnableEvents = oldEvents
     MsgBox "Fresh PaymentPlans created. Original sheet retained as PaymentPlans_Backup." & vbCrLf & _
@@ -141,12 +160,13 @@ Public Sub RecoverEmptyPaymentPlans()
         "Reopen Payment Options, select the saved quote and create its plan. Save the workbook after checking.", vbInformation
     Exit Sub
 Failed:
-    failure = Err.Description
+    failure = "Error " & CStr(Err.Number) & " while " & stage & ": " & Err.Description
     On Error Resume Next
     If eventsSaved Then Application.EnableEvents = oldEvents
     On Error GoTo 0
     If renamed Then failure = failure & vbCrLf & _
         "The original sheet remains PaymentPlans_Backup. Recovery may be incomplete; inspect it before retrying."
+    If Not renamed Then failure = failure & vbCrLf & "No sheets were renamed. Try a short writable local folder."
     If backupPath <> "" Then failure = failure & vbCrLf & "Backup destination: " & backupPath
     MsgBox "PaymentPlans recovery stopped: " & failure, vbExclamation
 End Sub

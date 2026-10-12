@@ -117,14 +117,24 @@ layout**, and you have **never created any plans**, import the updated
 writable workbook copy. The macro checks all cells below the headers (including
 hidden/filtered rows, formulas and data outside the PlanID column). If any data
 exists, it stops without changing sheets: those records need reconciliation.
-After confirmation it saves a uniquely named workbook backup in the workbook's
-folder, renames the empty sheet to `PaymentPlans_Backup` without deleting it, and
+After confirmation, choose a short writable **local folder** (for example Documents)
+for the backup, even if the workbook is stored in OneDrive / SharePoint. A web
+address is not a filesystem backup destination. Cancelling the picker makes no
+changes. The macro saves a uniquely named `PaymentPlansRecovery_<timestamp>` copy
+with the workbook's original extension and verifies it exists and is nonempty
+before renaming the empty sheet to `PaymentPlans_Backup` without deleting it, then
 creates the new layout. An existing backup sheet is never overwritten. Reopen
 Payment Options, select the saved unconverted quote and create the plan.
 InvoiceLog, QuoteLog and Payments are not changed by recovery. Save after checking.
 If creation fails after the rename, keep the archived sheet and workbook backup
 and inspect the partial recovery before retrying. Do not manually set legacy
 SchemaVersion values to 2 or remove validation guards.
+For **Bad file name or number**, replace the old module with this updated export
+and choose a short local folder. If it still fails, report the error number and
+stage in the dialog, with personal path details redacted. A backup failure never
+proceeds to renaming. On a workbook copy, verify cancellation, an unwritable
+destination and an existing filename leave the original sheet intact or allocate
+a unique filename; verify a successful backup opens before using the fresh layout.
 
 The first 22 columns retain their existing positions; `RequestRef`,
 `SchemaVersion`, `SendState` and `DepositPercent` are appended. New schedule
