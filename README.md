@@ -29,6 +29,34 @@ workbook until imported.** Back up the `.xlsm` and try the import on a copy firs
 5. Run **Debug > Compile VBAProject**, save as `.xlsm`, and enable macros only
    for the trusted workbook. Reopen to exercise the reminder.
 
+### Alternative: build a clean Payment Options form
+
+To avoid the reused `.frx` container, use `modBuildFormPaymentOptions.bas`
+instead of importing the form in step 2 above. All other module imports and
+Menu wiring still apply.
+
+1. Work on a backed-up workbook copy. If `frmPaymentOptions` already exists,
+   right-click it in the VBE and **Export File** to keep a backup, then remove
+   it. Do not remove `frmStatement` or any other form.
+2. Import `modBuildFormPaymentOptions.bas`. Temporarily enable **Trust access
+   to the VBA project object model** in Excel's Trust Center > Macro Settings.
+   The VBA project must be unlocked.
+3. Run `BuildFormPaymentOptions` and select the **updated, trusted**
+   `frmPaymentOptions.frm` from this repository. No `.frx` is needed. The builder
+   creates an empty designer and loads the form's code, including the `m_po*`
+   handles and matching event handlers. It does not duplicate that code in the
+   builder, so future changes to the selected export are included automatically.
+   Existing components are never overwritten.
+4. Disable Trust access again when finished. Run **Debug > Compile VBAProject**
+   and save the workbook as `.xlsm`. An empty designer is expected: the controls
+   are created when the form opens.
+
+On a workbook copy, verify that cancelling the file picker or selecting another
+form leaves the project unchanged; rerunning with an existing `frmPaymentOptions`
+also leaves it unchanged. Open Payment Options through the Menu and check source
+selection, preview changes and buttons, then exercise the reminder/mail flow using
+the acceptance checks below. These checks require Excel/VBE.
+
 ### Settings and schedule
 
 The following key/value rows are added automatically to `Settings` columns A/B
