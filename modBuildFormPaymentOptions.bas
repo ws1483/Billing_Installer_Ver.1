@@ -5,14 +5,17 @@ Option Explicit
 Public Sub BuildFormPaymentOptions()
     Dim sourcePath As Variant, sourceCode As String
     Dim project As Object, component As Object, newForm As Object
-    Dim failure As String
+    Dim failure As String, stage As String
     On Error GoTo Fail
 
+    stage = "selecting the form export"
     sourcePath = Application.GetOpenFilename("VBA UserForms (*.frm), *.frm", , _
         "Select the updated frmPaymentOptions.frm from this repository")
     If VarType(sourcePath) = vbBoolean Then Exit Sub
+    stage = "reading the form export"
     sourceCode = ReadPaymentOptionsCode(CStr(sourcePath))
 
+    stage = "accessing the VBA project"
     Set project = ThisWorkbook.VBProject
     For Each component In project.VBComponents
         If StrComp(component.Name, "frmPaymentOptions", vbTextCompare) = 0 Then
@@ -22,14 +25,18 @@ Public Sub BuildFormPaymentOptions()
         End If
     Next component
 
+    stage = "creating the UserForm"
     Set newForm = project.VBComponents.Add(3) ' vbext_ct_MSForm; no VBIDE reference required.
     newForm.Name = "frmPaymentOptions"
+    stage = "setting the designer layout"
     With newForm.Designer
         .Caption = "Payment Options"
         .Width = 650
         .Height = 550
-        .StartUpPosition = 1
     End With
+    stage = "setting the form startup position"
+    newForm.Properties("StartUpPosition").Value = 1
+    stage = "loading the form code"
     With newForm.CodeModule
         If .CountOfLines > 0 Then .DeleteLines 1, .CountOfLines
         .AddFromString sourceCode
@@ -39,7 +46,7 @@ Public Sub BuildFormPaymentOptions()
     Exit Sub
 
 Fail:
-    failure = Err.Description
+    failure = "Error " & CStr(Err.Number) & " while " & stage & ": " & Err.Description
     On Error Resume Next
     If Not newForm Is Nothing Then project.VBComponents.Remove newForm
     On Error GoTo 0

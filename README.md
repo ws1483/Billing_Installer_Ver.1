@@ -41,6 +41,8 @@ Menu wiring still apply.
 2. Import `modBuildFormPaymentOptions.bas`. Temporarily enable **Trust access
    to the VBA project object model** in Excel's Trust Center > Macro Settings.
    The VBA project must be unlocked.
+   If updating an older builder, remove the existing `modBuildFormPaymentOptions`
+   module first, then import the updated file; do not keep duplicate builder modules.
 3. Run `BuildFormPaymentOptions` and select the **updated, trusted**
    `frmPaymentOptions.frm` from this repository. No `.frx` is needed. The builder
    creates an empty designer and loads the form's code, including the `m_po*`
@@ -56,6 +58,12 @@ form leaves the project unchanged; rerunning with an existing `frmPaymentOptions
 also leaves it unchanged. Open Payment Options through the Menu and check source
 selection, preview changes and buttons, then exercise the reminder/mail flow using
 the acceptance checks below. These checks require Excel/VBE.
+
+The builder sets `StartUpPosition` through the VBA component's `Properties`
+collection, not its MSForms designer (which can raise error 438 for that member).
+If building still fails, report the error number and operation shown in the
+dialog. Trust access is needed for project access; enabling it does not fix an
+unsupported-property error.
 
 ### Settings and schedule
 
