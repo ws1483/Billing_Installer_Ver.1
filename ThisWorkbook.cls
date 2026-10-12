@@ -13,6 +13,7 @@ Private Sub Workbook_Open()
     On Error Resume Next
     ThisWorkbook.Sheets("Menu").Activate
     RefreshMenuSummary
+    ShowInstallmentReminder
     ' HideRibbon removed — full workbook UI stays available
     On Error GoTo 0
 End Sub

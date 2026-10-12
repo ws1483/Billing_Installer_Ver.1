@@ -107,6 +107,44 @@ Public Const PY_METHOD As Long = 5      ' E Method
 Public Const PY_REF As Long = 6         ' F Reference
 Public Const PY_NOTES As Long = 7       ' G Notes
 
+' ---------------- PaymentPlans columns (one row per invoice) ----------------
+Public Const PP_PLANID As Long = 1
+Public Const PP_SOURCE As Long = 2
+Public Const PP_RECIP As Long = 3
+Public Const PP_CUST As Long = 4
+Public Const PP_DEPT As Long = 5
+Public Const PP_TOTAL As Long = 6
+Public Const PP_DEPOSIT As Long = 7
+Public Const PP_NUMBER As Long = 8       ' 0 = deposit
+Public Const PP_COUNT As Long = 9
+Public Const PP_DUE As Long = 10
+Public Const PP_AMOUNT As Long = 11
+Public Const PP_INVOICE As Long = 12
+Public Const PP_GENERATED As Long = 13
+Public Const PP_STATUS As Long = 14
+Public Const PP_REMINDED As Long = 15
+Public Const PP_CREATED As Long = 16
+Public Const PP_MODIFIED As Long = 17
+Public Const PP_PATIENT As Long = 18
+Public Const PP_PDF As Long = 19
+Public Const PP_ALIGNERS As Long = 20
+Public Const PP_PAID As Long = 21
+Public Const PP_BALANCE As Long = 22
+Public Const PP_LASTCOL As Long = 22
+' Compatibility aliases for existing callers.
+Public Const PP_MONTHS As Long = PP_COUNT
+Public Const PP_INSTALLMENT As Long = PP_NUMBER
+Public Const PP_INVNO As Long = PP_INVOICE
+Public Const PP_PDFPATH As Long = PP_PDF
+
+Public Type PaymentPlanResult
+    Deposit As Currency
+    InstallmentCount As Long
+    MonthlyAmount As Currency
+    TreatmentWeeks As Double
+    Schedule() As Currency
+End Type
+
 ' ---------------- Settings counter cells ----------------
 Public Const SET_QUOTE_WA As String = "B10"
 Public Const SET_QUOTE_WD As String = "B11"

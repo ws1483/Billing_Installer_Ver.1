@@ -108,8 +108,32 @@ End Function
 '   expectedRow = 0 means "this is a NEW row" (docNo must not exist anywhere).
 Public Function SafeToWriteNumber(wsLog As Worksheet, docNo As String, _
                                   ByVal expectedRow As Long) As Boolean
-    Dim foundRow As Long
+    Dim foundRow As Long, wsPlans As Worksheet, r As Long
     foundRow = FindLogRow(wsLog, docNo)
+    If foundRow > 0 Then
+        Dim statusCol As Long
+        If wsLog.Name = "InvoiceLog" Then statusCol = IL_STATUS
+        If wsLog.Name = "MedAidLog" Then statusCol = ML_STATUS
+        If statusCol > 0 Then
+            If NrmID(CStr(wsLog.Cells(foundRow, statusCol).value)) = "VOIDED" Then
+                MsgBox "Document " & docNo & " is voided. Its financial record cannot be overwritten.", vbExclamation
+                Exit Function
+            End If
+        End If
+        If wsLog.Name = "InvoiceLog" Then
+            On Error Resume Next
+            Set wsPlans = ThisWorkbook.Sheets("PaymentPlans")
+            On Error GoTo 0
+            If Not wsPlans Is Nothing Then
+                For r = 2 To wsPlans.Cells(wsPlans.Rows.Count, PP_PLANID).End(xlUp).row
+                    If NrmID(CStr(wsPlans.Cells(r, PP_INVOICE).value)) = NrmID(docNo) Then
+                        MsgBox "This invoice is managed by Payment Options. Use Cancel/Amend Plan instead of editing it.", vbExclamation
+                        Exit Function
+                    End If
+                Next r
+            End If
+        End If
+    End If
     If foundRow = 0 Then
         SafeToWriteNumber = True
     ElseIf foundRow = expectedRow Then
