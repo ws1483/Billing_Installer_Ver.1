@@ -107,7 +107,7 @@ Public Const PY_METHOD As Long = 5      ' E Method
 Public Const PY_REF As Long = 6         ' F Reference
 Public Const PY_NOTES As Long = 7       ' G Notes
 
-' ---------------- PaymentPlans columns (one row per invoice) ----------------
+' ---------------- PaymentPlans columns (nonfinancial request schedule) ----------------
 Public Const PP_PLANID As Long = 1
 Public Const PP_SOURCE As Long = 2
 Public Const PP_RECIP As Long = 3
@@ -130,7 +130,11 @@ Public Const PP_PDF As Long = 19
 Public Const PP_ALIGNERS As Long = 20
 Public Const PP_PAID As Long = 21
 Public Const PP_BALANCE As Long = 22
-Public Const PP_LASTCOL As Long = 22
+Public Const PP_REQUEST As Long = 23
+Public Const PP_SCHEMA As Long = 24
+Public Const PP_SENDSTATE As Long = 25
+Public Const PP_PERCENT As Long = 26
+Public Const PP_LASTCOL As Long = 26
 ' Compatibility aliases for existing callers.
 Public Const PP_MONTHS As Long = PP_COUNT
 Public Const PP_INSTALLMENT As Long = PP_NUMBER

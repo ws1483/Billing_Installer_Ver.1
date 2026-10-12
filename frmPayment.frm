@@ -475,14 +475,26 @@ End Sub
 Private Sub RecordDocsBatch(payDate As Variant, method As String, ref As String, notes As String)
     Dim i As Long, n As Long, payID As String, tot As Double, docNo As String
     Dim dType As String, bal As Double, summary As String
+    Dim plannedAmounts() As Double, planIDs() As String, requestRefs() As String
 
     For i = 0 To lstDocs.ListCount - 1
         If lstDocs.Selected(i) Then n = n + 1: tot = tot + mRowBal(i)
     Next i
     If n = 0 Then MsgBox "Tick at least one document to pay.", vbExclamation: Exit Sub
+    ReDim plannedAmounts(0 To lstDocs.ListCount - 1)
+    ReDim planIDs(0 To lstDocs.ListCount - 1): ReDim requestRefs(0 To lstDocs.ListCount - 1)
+    tot = 0
+    For i = 0 To lstDocs.ListCount - 1
+        If lstDocs.Selected(i) Then
+            plannedAmounts(i) = mRowBal(i)
+            If Not modPaymentOptions.ChoosePaymentRequest(mRowNo(i), planIDs(i), requestRefs(i), plannedAmounts(i)) Then Exit Sub
+            modPaymentOptions.ValidatePaymentWrite mRowNo(i), plannedAmounts(i), payDate, planIDs(i), requestRefs(i)
+            tot = tot + plannedAmounts(i)
+        End If
+    Next i
 
     If MsgBox("Record payment of R " & Format(tot, "#,##0.00") & _
-              " across " & n & " document(s), paying each in full?", _
+              " across " & n & " document(s)? Plan receipts always credit the permanent invoice.", _
               vbQuestion + vbYesNo, "Confirm Payment") = vbNo Then Exit Sub
 
     payID = NextPaymentID()
@@ -490,9 +502,9 @@ Private Sub RecordDocsBatch(payDate As Variant, method As String, ref As String,
         If lstDocs.Selected(i) Then
             docNo = mRowNo(i)
             dType = mRowType(i)
-            bal = mRowBal(i)
+            bal = plannedAmounts(i)
             If bal > 0.005 Then
-                WritePaymentRow payID, docNo, payDate, bal, method, ref, notes
+                WritePaymentRow payID, docNo, payDate, bal, method, ref, notes, planIDs(i), requestRefs(i)
                 ReconcileDoc dType, docNo
                 LogAudit "Payment", docNo, "", "Paid " & Format(bal, "0.00"), "Batch " & payID
                 summary = summary & "  ? " & docNo & "  R " & Format(bal, "#,##0.00") & vbCrLf
@@ -594,9 +606,16 @@ End Sub
 
 ' ============================ WRITERS / HELPERS ============================
 Private Sub WritePaymentRow(payID As String, docNo As String, payDate As Variant, _
-                            amt As Double, method As String, ref As String, notes As String)
-    Dim ws As Worksheet, r As Long
+                            amt As Double, method As String, ref As String, notes As String, _
+                            Optional planID As String = "", Optional requestRef As String = "")
+    Dim ws As Worksheet, r As Long, pc As Long, rc As Long
+    modPaymentOptions.ValidatePaymentWrite docNo, amt, payDate, planID, requestRef
     Set ws = ThisWorkbook.Sheets("Payments")
+    If planID <> "" Then
+        pc = modPaymentOptions.PaymentLinkColumn("PaymentPlanID", True)
+        rc = modPaymentOptions.PaymentLinkColumn("PaymentRequestRef", True)
+        LogAudit "PaymentPlanPayment", docNo, "", CStr(amt), "Plan=" & planID & "; request=" & requestRef & "; " & payID
+    End If
     r = ws.Cells(ws.Rows.Count, "A").End(xlUp).row + 1
     ws.Cells(r, PY_ID).value = payID
     ws.Cells(r, PY_INV).value = docNo
@@ -605,6 +624,9 @@ Private Sub WritePaymentRow(payID As String, docNo As String, payDate As Variant
     ws.Cells(r, PY_METHOD).value = method
     ws.Cells(r, PY_REF).value = ref
     ws.Cells(r, PY_NOTES).value = notes
+    If planID <> "" Then
+        ws.Cells(r, pc).value = planID: ws.Cells(r, rc).value = requestRef
+    End If
 End Sub
 
 Private Function NextPaymentID() As String
@@ -654,4 +676,3 @@ Private Function CustIDToDrName(ByVal custID As String) As String
     Next i
     CustIDToDrName = custID
 End Function
-

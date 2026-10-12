@@ -1,7 +1,19 @@
 Attribute VB_Name = "modExportPDF"
 Option Explicit
+Private mPaymentPDFDirectory As String
+
+Public Function PaymentPDFDirectory(Optional ByVal choose As Boolean = False) As String
+    Dim picker As Object
+    If choose Or mPaymentPDFDirectory = "" Then
+        Set picker = Application.FileDialog(4)
+        picker.Title = "Choose invoice / payment request PDF folder"
+        If picker.Show <> -1 Then Exit Function
+        mPaymentPDFDirectory = picker.SelectedItems(1)
+    End If
+    PaymentPDFDirectory = mPaymentPDFDirectory
+End Function
 ' ============================================================================
-' ExportPDF — exports the ACTIVE document sheet (Quote/Invoice/CreditNote)
+' ExportPDF ï¿½ exports the ACTIVE document sheet (Quote/Invoice/CreditNote)
 ' to a PDF. User chooses the save location via a Save-As dialog.
 ' Suggested filename: [DocNo]_[PatientName].pdf (editable in the dialog).
 ' Opens the PDF after export. Overwrite is handled by the Save dialog.
@@ -30,21 +42,23 @@ Public Sub ExportPDF()
     docNo = Trim(CStr(ws.Range("G7").value))
     patient = Trim(CStr(ws.Range("F14").value))
     If docNo = "" Then
-        MsgBox "This document has no number yet — please Save it first.", vbExclamation
+        MsgBox "This document has no number yet ï¿½ please Save it first.", vbExclamation
         Exit Sub
     End If
     If patient = "" Then patient = "NoName"
 
     ' 3. build suggested filename (sanitised)
     suggested = CleanName(docNo & "_" & patient) & ".pdf"
+    If mPaymentPDFDirectory <> "" Then suggested = mPaymentPDFDirectory & Application.PathSeparator & suggested
 
-    ' 4. Save-As dialog — user picks folder + confirms/edits name
+    ' 4. Save-As dialog ï¿½ user picks folder + confirms/edits name
     chosen = Application.GetSaveAsFilename( _
         InitialFileName:=suggested, _
         FileFilter:="PDF Files (*.pdf), *.pdf", _
         title:="Save PDF As")
 
     If chosen = False Then Exit Sub          ' user cancelled
+    mPaymentPDFDirectory = Left$(CStr(chosen), InStrRev(CStr(chosen), Application.PathSeparator) - 1)
 
     ' 5. lock layout to ONE page (prevents footer spilling to page 2)
     FitDocToOnePage ws, "$A$1:$H$48"
@@ -87,7 +101,7 @@ Private Sub FitDocToOnePage(ws As Worksheet, printAreaRef As String)
 End Sub
 
 ' ---- strip characters illegal in Windows filenames ----
-Private Function CleanName(s As String) As String
+Public Function CleanName(s As String) As String
     Dim bad As Variant, ch As Variant, out As String
     out = s
     bad = Array("\", "/", ":", "*", "?", """", "<", ">", "|")
@@ -98,7 +112,7 @@ Private Function CleanName(s As String) As String
     CleanName = out
 End Function
 ' ============================================================================
-' PrintDoc — prints the ACTIVE document sheet (Quote/Invoice/CreditNote).
+' PrintDoc ï¿½ prints the ACTIVE document sheet (Quote/Invoice/CreditNote).
 ' Applies the same one-page fit as ExportPDF so long descriptions never push
 ' the footer/banking block onto a second page. Uses the default printer.
 ' ============================================================================
@@ -140,7 +154,7 @@ Public Sub PrintDoc()
     ' 2. must be a saved doc
     docNo = Trim(CStr(ws.Range("G7").value))
     If docNo = "" Then
-        MsgBox "This document has no number yet — please Save it first.", vbExclamation
+        MsgBox "This document has no number yet ï¿½ please Save it first.", vbExclamation
         Exit Sub
     End If
 
@@ -160,5 +174,3 @@ Public Sub PrintDoc()
 Fail:
     MsgBox "PrintDoc error: " & Err.Description, vbExclamation
 End Sub
-
-

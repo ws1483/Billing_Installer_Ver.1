@@ -120,14 +120,14 @@ Public Function SafeToWriteNumber(wsLog As Worksheet, docNo As String, _
                 Exit Function
             End If
         End If
-        If wsLog.Name = "InvoiceLog" Then
+        If wsLog.Name = "InvoiceLog" Or wsLog.Name = "MedAidLog" Then
             On Error Resume Next
             Set wsPlans = ThisWorkbook.Sheets("PaymentPlans")
             On Error GoTo 0
             If Not wsPlans Is Nothing Then
                 For r = 2 To wsPlans.Cells(wsPlans.Rows.Count, PP_PLANID).End(xlUp).row
                     If NrmID(CStr(wsPlans.Cells(r, PP_INVOICE).value)) = NrmID(docNo) Then
-                        MsgBox "This invoice is managed by Payment Options. Use Cancel/Amend Plan instead of editing it.", vbExclamation
+                        MsgBox "This permanent invoice has a Payment Options schedule. Its original financial details cannot be rewritten.", vbExclamation
                         Exit Function
                     End If
                 Next r
@@ -290,4 +290,3 @@ Public Function Num(v As Variant) As Double
         Num = 0
     End If
 End Function
-

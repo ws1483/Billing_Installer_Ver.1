@@ -22,7 +22,7 @@ Private mPaymentsIdx As Object
 Private mPaymentsIdxSheet As String
 Private mPaymentsIdxCutoff As Double
 
-' Filtered plan statements share the template, payment index, aging and PDF path.
+' Nonfinancial schedule detail; normal statements continue using the original invoice / receipts.
 Public Sub RunPaymentPlanStatement(planRows As Collection, title As String)
     Dim ws As Worksheet, wsPlans As Worksheet, wsLog As Worksheet, wsPay As Worksheet
     Dim idx As Object, pr As Variant, lr As Long, r As Long, off As Long, needRows As Long
@@ -31,6 +31,7 @@ Public Sub RunPaymentPlanStatement(planRows As Collection, title As String)
     Dim vatDue As Double, lineVat As Double
     Dim age60 As Double, age90 As Double, days As Long, dueD As Date
     Dim folder As String, fpath As String, dFrom As Date, dTo As Date, fileTitle As String, ch As Variant
+    Dim allocations As Object, planID As String, planPaid As Variant
     On Error GoTo Fail
     If planRows.Count = 0 Then
         MsgBox "No matching payment-plan invoices.", vbInformation
@@ -39,15 +40,16 @@ Public Sub RunPaymentPlanStatement(planRows As Collection, title As String)
     Set wsPlans = ThisWorkbook.Sheets("PaymentPlans")
     Set wsLog = ThisWorkbook.Sheets("InvoiceLog")
     Set wsPay = ThisWorkbook.Sheets("Payments")
-    Set idx = BuildPaymentsIndex(wsPay, Date)
+    modPaymentOptions.RefreshPaymentPlans
+    Set allocations = CreateObject("Scripting.Dictionary")
     Set ws = ResetStatementSheet()
     dFrom = Date: dTo = Date
     ws.Range("A3").value = title
-    ws.Range("B5").value = "Payment Options - selected invoices only"
+    ws.Range("B5").value = "Payment schedule only - NOT additional invoices / charges"
     ws.Range("G5").value = Format(Date, "yyyy-mm-dd")
     ws.Cells(FIRST_LINE_ROW - 1, 1).value = "Due date"
-    ws.Cells(FIRST_LINE_ROW - 1, 2).value = "Invoice"
-    ws.Cells(FIRST_LINE_ROW - 1, 3).value = "Plan / account / patient"
+    ws.Cells(FIRST_LINE_ROW - 1, 2).value = "Request"
+    ws.Cells(FIRST_LINE_ROW - 1, 3).value = "Permanent invoice / account / patient"
     ws.Cells(FIRST_LINE_ROW - 1, 4).value = "Status"
     ws.Cells(FIRST_LINE_ROW - 1, 5).value = "Amount"
     ws.Cells(FIRST_LINE_ROW - 1, 6).value = "Paid"
@@ -61,28 +63,24 @@ Public Sub RunPaymentPlanStatement(planRows As Collection, title As String)
     End If
     r = FIRST_LINE_ROW
     For Each pr In planRows
+        If NrmID(CStr(wsPlans.Cells(CLng(pr), PP_STATUS).value)) = "CANCELLED" Then GoTo NextPlanRequest
         docNo = CStr(wsPlans.Cells(CLng(pr), PP_INVOICE).value)
-        lr = FindLogRow(wsLog, docNo)
-        If lr = 0 Then Err.Raise vbObjectError + 603, , "Plan invoice missing: " & docNo
-        amount = Num(wsLog.Cells(lr, IL_TOTAL).value)
-        paid = PaymentsAsOfIdx(idx, docNo, Date)
-        balance = LiveOutstanding(amount, idx, docNo, Date)
-        lineVat = 0
-        If amount > 0 Then
-            ' Allocate the saved tax proportionally after payments, including zero-rated sources.
-            lineVat = Round(balance * Num(wsLog.Cells(lr, IL_VAT).value) / amount, 2)
-            If lineVat < 0 Then lineVat = 0
-            If lineVat > balance Then lineVat = balance
+        planID = CStr(wsPlans.Cells(CLng(pr), PP_PLANID).value)
+        If Not allocations.Exists(NrmID(planID)) Then
+            allocations.Add NrmID(planID), modPaymentOptions.PlanAllocatedPayments(planID, Date)
         End If
-        vatDue = vatDue + lineVat
+        planPaid = allocations(NrmID(planID))
+        amount = Num(wsPlans.Cells(CLng(pr), PP_AMOUNT).value)
+        paid = CDbl(planPaid(CLng(wsPlans.Cells(CLng(pr), PP_NUMBER).value)))
+        balance = amount - paid
         dueD = CDate(wsPlans.Cells(CLng(pr), PP_DUE).value)
         If dueD < dFrom Then dFrom = dueD
         If dueD > dTo Then dTo = dueD
         running = running + balance
         tInv = tInv + amount: tPaid = tPaid + paid
         ws.Cells(r, 1).value = Format(dueD, "dd/mm/yyyy")
-        ws.Cells(r, 2).value = docNo
-        ws.Cells(r, 3).value = CStr(wsPlans.Cells(CLng(pr), PP_PLANID).value) & " / " & _
+        ws.Cells(r, 2).value = wsPlans.Cells(CLng(pr), PP_REQUEST).value
+        ws.Cells(r, 3).value = docNo & " / " & _
             CStr(wsPlans.Cells(CLng(pr), PP_CUST).value) & " / " & _
             CStr(wsPlans.Cells(CLng(pr), PP_PATIENT).value)
         ws.Cells(r, 4).value = CStr(wsPlans.Cells(CLng(pr), PP_STATUS).value)
@@ -101,6 +99,7 @@ Public Sub RunPaymentPlanStatement(planRows As Collection, title As String)
             age90 = age90 + balance
         End If
         r = r + 1
+NextPlanRequest:
     Next pr
     ws.Range("G8").value = Format(dFrom, "yyyy-mm-dd")
     ws.Range("G9").value = Format(dTo, "yyyy-mm-dd")
@@ -216,7 +215,7 @@ Private Function PaymentsAsOfIdx(idx As Object, docNo As String, cutoff As Date)
 
     Set entries = idx(docKey)
     For Each entry In entries
-        If CDbl(entry(0)) <= CDbl(cutoff) Then
+        If CDbl(entry(0)) < CDbl(DateAdd("d", 1, DateValue(cutoff))) Then
             PaymentsAsOfIdx = PaymentsAsOfIdx + Num(entry(1))
         End If
     Next entry
@@ -255,7 +254,7 @@ Private Sub QueuePaymentEntry(wsPay As Worksheet, payRow As Long, dFrom As Date,
 
     wasUndated = False
     pDate = PaymentEffectiveDate(wsPay.Cells(payRow, 3).value, dTo, wasUndated)
-    If pDate >= dFrom And pDate <= dTo Then
+    If pDate >= DateValue(dFrom) And pDate < DateAdd("d", 1, DateValue(dTo)) Then
         cnt = cnt + 1
         rowsArr(cnt) = payRow
         dts(cnt) = CDbl(pDate)
