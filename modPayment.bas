@@ -38,6 +38,7 @@ Public Sub ReconcileDoc(ByVal docType As String, ByVal docNo As String)
     End If
 
     Set wsP = ThisWorkbook.Sheets("Payments")
+    modPaymentOptions.CheckInvoicePaymentLinks docNo
     last = wsP.Cells(wsP.Rows.Count, "A").End(xlUp).row
     paid = 0
     For i = 2 To last

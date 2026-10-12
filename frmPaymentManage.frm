@@ -196,6 +196,7 @@ End Sub
 Private Sub btnSaveEdit_Click()
     Dim wsP As Worksheet, r As Long, payID As String
     Dim oldAmt As Double, newAmt As Double
+    Dim pc As Long, rc As Long, planID As String, requestRef As String
 
     If mSelDocNo = "" Then MsgBox "Select a document first.", vbExclamation: Exit Sub
     If lstPays.ListIndex < 0 Then MsgBox "Select a payment row to edit.", vbExclamation: Exit Sub
@@ -208,18 +209,33 @@ Private Sub btnSaveEdit_Click()
     On Error GoTo Fail
     Application.ScreenUpdating = False
     Set wsP = ThisWorkbook.Sheets("Payments")
+    If ThisWorkbook.Worksheets(IIf(mSelDocType = "medclaim", "MedAidLog", "InvoiceLog")).ProtectContents Then _
+        Err.Raise 5, , "Invoice log is protected."
     r = mPayRowSheet(lstPays.ListIndex)
     payID = CStr(wsP.Cells(r, PY_ID).value)
     oldAmt = Num(wsP.Cells(r, PY_AMT).value)
+    If NrmID(CStr(wsP.Cells(r, PY_INV).value)) <> NrmID(mSelDocNo) Then Err.Raise 5, , "Payment selection changed. Reload payments."
+    pc = modPaymentOptions.PaymentLinkColumn("PaymentPlanID")
+    rc = modPaymentOptions.PaymentLinkColumn("PaymentRequestRef")
+    If pc > 0 Then planID = CStr(wsP.Cells(r, pc).value)
+    If rc > 0 Then requestRef = CStr(wsP.Cells(r, rc).value)
+    If planID <> "" Then
+        requestRef = Trim$(InputBox("Optional request for this plan (blank = automatic allocation):", _
+            "Edit payment request", requestRef))
+    End If
+    modPaymentOptions.ValidatePaymentWrite mSelDocNo, newAmt, CDate(txtDate.value), planID, requestRef, r
 
     ' warn if this payment likely created doctor credit (was an overpayment)
     WarnIfCreditLinked payID, oldAmt
+    LogAudit "PayEdit", mSelDocNo, "Amt " & Format(oldAmt, "0.00"), _
+        "Amt " & Format(newAmt, "0.00"), "Edit " & payID & "; request=" & requestRef
 
     wsP.Cells(r, PY_DATE).value = CDate(txtDate.value)
     wsP.Cells(r, PY_AMT).value = newAmt
     wsP.Cells(r, PY_METHOD).value = cboMethod.value
     wsP.Cells(r, PY_REF).value = txtRef.value
     wsP.Cells(r, PY_NOTES).value = txtNotes.value
+    If rc > 0 Then wsP.Cells(r, rc).value = requestRef
 
     ReconcileDoc mSelDocType, mSelDocNo
     LogAudit "PayEdit", mSelDocNo, "Amt " & Format(oldAmt, "0.00"), _
@@ -244,6 +260,9 @@ Private Sub btnDelete_Click()
 
     Set wsP = ThisWorkbook.Sheets("Payments")
     r = mPayRowSheet(lstPays.ListIndex)
+    If NrmID(CStr(wsP.Cells(r, PY_INV).value)) <> NrmID(mSelDocNo) Then
+        MsgBox "Payment selection changed. Reload payments.", vbExclamation: Exit Sub
+    End If
     payID = CStr(wsP.Cells(r, PY_ID).value)
     amt = Num(wsP.Cells(r, PY_AMT).value)
 
@@ -255,6 +274,12 @@ Private Sub btnDelete_Click()
     Application.ScreenUpdating = False
 
     WarnIfCreditLinked payID, amt
+    If wsP.ProtectContents Or ThisWorkbook.Worksheets("AuditLog").ProtectContents Then Err.Raise 5, , "Payment / audit log is protected."
+    If ThisWorkbook.Worksheets(IIf(mSelDocType = "medclaim", "MedAidLog", "InvoiceLog")).ProtectContents Then _
+        Err.Raise 5, , "Invoice log is protected."
+    modPaymentOptions.CheckInvoicePaymentLinks mSelDocNo
+    LogAudit "PayDelete", mSelDocNo, "Amt " & Format(amt, "0.00"), "", _
+        "Reverse " & payID & "; retained in audit; allocations rebuilt"
 
     wsP.Rows(r).Delete
     ReconcileDoc mSelDocType, mSelDocNo
@@ -333,4 +358,3 @@ Private Sub LoadMethods()
 EH:
     MsgBox "LoadMethods error: " & Err.Description, vbExclamation
 End Sub
-
