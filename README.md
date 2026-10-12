@@ -110,6 +110,22 @@ not to a separate installment invoice. Column constants and the expected header
 layout live in `modConfig` and `EnsurePaymentPlansSheet`. Do not rearrange columns.
 This model is for new plans; an incompatible legacy plan layout must not be
 silently reinterpreted.
+
+If dashboard, reminders and plan creation report **Incompatible PaymentPlans
+layout**, and you have **never created any plans**, import the updated
+`modPaymentOptions.bas`, then run **Alt+F8 > RecoverEmptyPaymentPlans** on a saved,
+writable workbook copy. The macro checks all cells below the headers (including
+hidden/filtered rows, formulas and data outside the PlanID column). If any data
+exists, it stops without changing sheets: those records need reconciliation.
+After confirmation it saves a uniquely named workbook backup in the workbook's
+folder, renames the empty sheet to `PaymentPlans_Backup` without deleting it, and
+creates the new layout. An existing backup sheet is never overwritten. Reopen
+Payment Options, select the saved unconverted quote and create the plan.
+InvoiceLog, QuoteLog and Payments are not changed by recovery. Save after checking.
+If creation fails after the rename, keep the archived sheet and workbook backup
+and inspect the partial recovery before retrying. Do not manually set legacy
+SchemaVersion values to 2 or remove validation guards.
+
 The first 22 columns retain their existing positions; `RequestRef`,
 `SchemaVersion`, `SendState` and `DepositPercent` are appended. New schedule
 rows use schema version 2. Receipt metadata columns `PaymentPlanID` and

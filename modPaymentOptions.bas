@@ -81,6 +81,76 @@ Public Function GetReminderLeadDays(Optional ByVal fallback As Long = 7) As Long
     GetReminderLeadDays = CLng(SettingNumber("ReminderLeadDays", fallback, 0, 2147483647#, True))
 End Function
 
+Public Function PaymentPlansHasData(ByVal ws As Worksheet) As Boolean
+    Dim used As Range, lastRow As Long
+    Set used = ws.UsedRange
+    lastRow = used.Row + used.Rows.Count - 1
+    If lastRow < 2 Then Exit Function
+    ' CountA includes hidden/filtered cells, errors and formulas returning empty strings.
+    PaymentPlansHasData = (Application.WorksheetFunction.CountA(ws.Range( _
+        ws.Cells(2, used.Column), ws.Cells(lastRow, used.Column + used.Columns.Count - 1))) > 0)
+End Function
+
+Public Sub RecoverEmptyPaymentPlans()
+    Dim ws As Worksheet, archived As Object, fresh As Worksheet
+    Dim backupPath As String, stem As String, extension As String, dot As Long, suffix As Long
+    Dim oldEvents As Boolean, eventsSaved As Boolean, renamed As Boolean, failure As String
+    On Error GoTo Failed
+    If mWriting Or mRefreshing Then Err.Raise 5, , "A payment plan update is running."
+    If ThisWorkbook.Path = "" Or ThisWorkbook.ReadOnly Then _
+        Err.Raise 5, , "Save a writable workbook copy before recovery."
+    If ThisWorkbook.ProtectStructure Then Err.Raise 5, , "Workbook structure is protected."
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("PaymentPlans")
+    Set archived = ThisWorkbook.Sheets("PaymentPlans_Backup")
+    On Error GoTo Failed
+    If ws Is Nothing Then
+        MsgBox "No PaymentPlans sheet exists. Open Payment Options to create it.", vbInformation
+        Exit Sub
+    End If
+    If PaymentPlansHasData(ws) Then
+        MsgBox "Recovery stopped: PaymentPlans contains data below its headers, including hidden or filtered rows." & _
+            vbCrLf & "No sheets were changed. Existing records need reconciliation, not a reset.", vbExclamation
+        Exit Sub
+    End If
+    If Not archived Is Nothing Then Err.Raise 5, , "PaymentPlans_Backup already exists. It will not be overwritten."
+    If MsgBox("Use this only if you have never created payment plans." & vbCrLf & _
+        "Save a workbook backup, preserve this empty sheet as PaymentPlans_Backup, and create a fresh layout?", _
+        vbYesNo + vbQuestion, "Recover empty PaymentPlans") <> vbYes Then Exit Sub
+
+    dot = InStrRev(ThisWorkbook.Name, ".")
+    If dot = 0 Then Err.Raise 5, , "Workbook filename must have an extension."
+    extension = Mid$(ThisWorkbook.Name, dot)
+    stem = ThisWorkbook.Path & Application.PathSeparator & Left$(ThisWorkbook.Name, dot - 1) & _
+        "_BeforePaymentPlansReset_" & Format$(Now, "yyyymmdd_hhnnss")
+    backupPath = stem & extension
+    Do While Dir$(backupPath) <> ""
+        suffix = suffix + 1
+        backupPath = stem & "_" & CStr(suffix) & extension
+    Loop
+    ThisWorkbook.SaveCopyAs backupPath
+    ' Recheck after confirmation and backup, before changing any sheet name.
+    If PaymentPlansHasData(ws) Then Err.Raise 5, , "PaymentPlans is no longer empty. Recovery stopped."
+    oldEvents = Application.EnableEvents: eventsSaved = True
+    Application.EnableEvents = False
+    ws.Name = "PaymentPlans_Backup": renamed = True
+    Set fresh = EnsurePaymentPlansSheet()
+    Application.EnableEvents = oldEvents
+    MsgBox "Fresh PaymentPlans created. Original sheet retained as PaymentPlans_Backup." & vbCrLf & _
+        "Workbook backup: " & backupPath & vbCrLf & _
+        "Reopen Payment Options, select the saved quote and create its plan. Save the workbook after checking.", vbInformation
+    Exit Sub
+Failed:
+    failure = Err.Description
+    On Error Resume Next
+    If eventsSaved Then Application.EnableEvents = oldEvents
+    On Error GoTo 0
+    If renamed Then failure = failure & vbCrLf & _
+        "The original sheet remains PaymentPlans_Backup. Recovery may be incomplete; inspect it before retrying."
+    If backupPath <> "" Then failure = failure & vbCrLf & "Backup destination: " & backupPath
+    MsgBox "PaymentPlans recovery stopped: " & failure, vbExclamation
+End Sub
+
 Public Function EnsurePaymentPlansSheet() As Worksheet
     Dim ws As Worksheet, headers As Variant, i As Long, populated As Boolean
     On Error Resume Next

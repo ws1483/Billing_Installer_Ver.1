@@ -42,7 +42,44 @@ Public Sub TestPaymentOptions()
     TestRequestNumbering
     TestPaymentAllocation
     TestSavedQuoteHeader
+    TestEmptyPlanRecoveryGuard
     MsgBox "Payment Options calculation, numbering, allocation and saved-source assertions completed.", vbInformation
+End Sub
+
+Private Sub TestEmptyPlanRecoveryGuard()
+    Dim book As Workbook, ws As Worksheet, errorNumber As Long, errorText As String
+    On Error GoTo Failed
+    Set book = Application.Workbooks.Add(xlWBATWorksheet)
+    Set ws = book.Worksheets(1)
+    ws.Cells(1, 1).Value = "Old header"
+    Debug.Assert Not PaymentPlansHasData(ws)
+    ws.Cells(40, 1).Value = "Hidden plan"
+    ws.Rows(40).Hidden = True
+    Debug.Assert PaymentPlansHasData(ws)
+    ws.Cells(40, 1).ClearContents
+    ws.Cells(2, 30).Value = "Orphan data outside PlanID column"
+    Debug.Assert PaymentPlansHasData(ws)
+    ws.Cells(2, 30).ClearContents
+    ws.Cells(3, 2).Formula = "="""""
+    Debug.Assert PaymentPlansHasData(ws)
+    ws.Cells(3, 2).ClearContents
+    ws.Cells(4, 2).Value = CVErr(xlErrNA)
+    Debug.Assert PaymentPlansHasData(ws)
+    ws.Cells(4, 2).ClearContents
+    ws.Range("A1:A2").Value = "Filtered record"
+    ws.Range("A1:A2").AutoFilter Field:=1, Criteria1:="No matching record"
+    Debug.Assert PaymentPlansHasData(ws)
+    ws.AutoFilterMode = False
+    ws.Cells(2, 1).ClearContents
+    Debug.Assert Not PaymentPlansHasData(ws)
+    book.Close SaveChanges:=False
+    Exit Sub
+Failed:
+    errorNumber = Err.Number: errorText = Err.Description
+    On Error Resume Next
+    If Not book Is Nothing Then book.Close SaveChanges:=False
+    On Error GoTo 0
+    Err.Raise errorNumber, "TestEmptyPlanRecoveryGuard", errorText
 End Sub
 
 Private Sub TestRequestNumbering()
